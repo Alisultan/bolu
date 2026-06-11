@@ -143,9 +143,19 @@ def get_group_balances(group_id: int, db: Session = Depends(get_db)):
                 key = (participant.user_id, expense.paid_by)
                 balances[key] = balances.get(key, 0) + split_amount
 
+    group_settlements = db.query(Settlement).filter(Settlement.group_id == group_id).all()
+
+    for settlement in group_settlements:
+        key = (settlement.from_user, settlement.to_user)
+        balances[key] = balances.get(key, 0) - settlement.amount
+
     result = []
 
     for (from_user_id, to_user_id), amount in balances.items():
+
+        if round(amount, 2) <= 0:
+            continue
+
         from_user = db.query(User).filter(User.id == from_user_id).first()
         to_user = db.query(User).filter(User.id == to_user_id).first()
 
