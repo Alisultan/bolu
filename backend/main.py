@@ -132,6 +132,22 @@ def create_expense(expense: ExpenseCreate, db: Session = Depends(get_db)):
 def get_expenses(db: Session = Depends(get_db)):
     return db.query(Expense).all()
 
+@app.delete("/expenses/{expense_id}")
+def delete_expense(expense_id: int, db: Session = Depends(get_db)):
+    expense = db.query(Expense).filter(Expense.id == expense_id).first()
+
+    if expense is None:
+        return {"error": "Expense not found"}
+
+    db.query(ExpenseParticipant).filter(
+        ExpenseParticipant.expense_id == expense_id
+    ).delete()
+
+    db.delete(expense)
+    db.commit()
+
+    return {"message": "Expense deleted"}
+
 @app.get("/groups/{group_id}/balances")
 def get_group_balances(group_id: int, db: Session = Depends(get_db)):
     group_expenses = db.query(Expense).filter(Expense.group_id == group_id).all()
