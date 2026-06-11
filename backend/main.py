@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from backend.database import Base, engine, SessionLocal
-from backend.models import User, Group, GroupMember, Expense, ExpenseParticipant
+from backend.models import User, Group, GroupMember, Expense, ExpenseParticipant, Settlement
 
 app = FastAPI(title="Bolu API")
 
@@ -15,6 +15,12 @@ class ExpenseCreate(BaseModel):
     amount: float
     description: str
     participants: list[int]
+
+class SettlementCreate(BaseModel):
+    group_id: int
+    from_user: int
+    to_user: int
+    amount: float
 
 def get_db():
     db = SessionLocal()
@@ -152,3 +158,23 @@ def get_group_balances(group_id: int, db: Session = Depends(get_db)):
         })
 
     return result
+
+@app.post("/settlements")
+def create_settlement(settlement: SettlementCreate, db: Session = Depends(get_db)):
+    new_settlement = Settlement(
+        group_id=settlement.group_id,
+        from_user=settlement.from_user,
+        to_user=settlement.to_user,
+        amount=settlement.amount
+    )
+
+    db.add(new_settlement)
+    db.commit()
+    db.refresh(new_settlement)
+
+    return new_settlement
+
+
+@app.get("/settlements")
+def get_settlements(db: Session = Depends(get_db)):
+    return db.query(Settlement).all()

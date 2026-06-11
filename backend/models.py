@@ -39,3 +39,12 @@ class ExpenseParticipant(Base):
     id = Column(Integer, primary_key=True, index=True)
     expense_id = Column(Integer, ForeignKey("expenses.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
+
+class Settlement(Base):
+    __tablename__ = "settlements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("groups.id"))
+    from_user = Column(Integer, ForeignKey("users.id"))
+    to_user = Column(Integer, ForeignKey("users.id"))
+    amount = Column(Float, nullable=False)
