@@ -84,6 +84,24 @@ def add_member_to_group(group_id: int, user_id: int, db: Session = Depends(get_d
 
     return member
 
+@app.delete("/groups/{group_id}/members/{user_id}")
+def delete_member_from_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
+    member = (
+        db.query(GroupMember)
+        .filter(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == user_id
+        )
+        .first()
+    )
+
+    if member is None:
+        return {"error": "Member not found in this group"}
+
+    db.delete(member)
+    db.commit()
+
+    return {"message": "Member removed from group"}
 
 @app.get("/groups/{group_id}/members")
 def get_group_members(group_id: int, db: Session = Depends(get_db)):

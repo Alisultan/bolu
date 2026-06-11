@@ -87,6 +87,16 @@ export default function GroupPage() {
     fetchBalances();
 };
 
+const deleteMember = async (userId: number) => {
+  await fetch(`http://127.0.0.1:8000/groups/${groupId}/members/${userId}`, {
+    method: 'DELETE',
+  });
+
+  fetchMembers();
+  fetchExpenses();
+  fetchBalances();
+};
+
   const addExpense = async () => {
     if (description.trim().length === 0) {
       alert('Description cannot be empty');
@@ -148,9 +158,29 @@ export default function GroupPage() {
 
           <div className="space-y-2 mb-4">
             {members.map((member) => (
-              <div key={member.id} className="border rounded p-3">
-                {member.name}
-              </div>
+            <div
+                key={member.id}
+                className="border rounded p-3 flex justify-between items-center"
+            >
+                <span>{member.name}</span>
+
+                <button
+                onClick={() => {
+                    const confirmed = confirm(
+                    'Are you sure you want to remove this member from the group?'
+                    );
+
+                    if (!confirmed) {
+                    return;
+                    }
+
+                    deleteMember(member.id);
+                }}
+                className="text-red-600 hover:underline"
+                >
+                Delete
+                </button>
+            </div>
             ))}
           </div>
 
