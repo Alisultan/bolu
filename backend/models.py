@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Float
 from backend.database import Base
 
 class User(Base):
@@ -29,7 +29,7 @@ class Expense(Base):
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("groups.id"))
     paid_by = Column(Integer, ForeignKey("users.id"))
-    amount = Column(Integer, nullable=False)
+    amount = Column(Float, nullable=False)
     description = Column(String, nullable=False)
 
 

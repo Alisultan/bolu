@@ -12,7 +12,7 @@ Base.metadata.create_all(bind=engine)
 class ExpenseCreate(BaseModel):
     group_id: int
     paid_by: int
-    amount: int
+    amount: float
     description: str
     participants: list[int]
 
@@ -113,3 +113,42 @@ def create_expense(expense: ExpenseCreate, db: Session = Depends(get_db)):
 @app.get("/expenses")
 def get_expenses(db: Session = Depends(get_db)):
     return db.query(Expense).all()
+
+@app.get("/groups/{group_id}/balances")
+def get_group_balances(group_id: int, db: Session = Depends(get_db)):
+    group_expenses = db.query(Expense).filter(Expense.group_id == group_id).all()
+
+    balances = {}
+
+    for expense in group_expenses:
+        participants = (
+            db.query(ExpenseParticipant)
+            .filter(ExpenseParticipant.expense_id == expense.id)
+            .all()
+        )
+
+        if len(participants) == 0:
+            continue
+
+        split_amount = expense.amount / len(participants)
+
+        for participant in participants:
+            if participant.user_id != expense.paid_by:
+                key = (participant.user_id, expense.paid_by)
+                balances[key] = balances.get(key, 0) + split_amount
+
+    result = []
+
+    for (from_user_id, to_user_id), amount in balances.items():
+        from_user = db.query(User).filter(User.id == from_user_id).first()
+        to_user = db.query(User).filter(User.id == to_user_id).first()
+
+        result.append({
+            "from_user_id": from_user_id,
+            "from_user_name": from_user.name if from_user else None,
+            "to_user_id": to_user_id,
+            "to_user_name": to_user.name if to_user else None,
+            "amount": round(amount, 2)
+        })
+
+    return result
