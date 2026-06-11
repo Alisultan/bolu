@@ -149,6 +149,18 @@ def get_group_balances(group_id: int, db: Session = Depends(get_db)):
         key = (settlement.from_user, settlement.to_user)
         balances[key] = balances.get(key, 0) - settlement.amount
 
+    simplified_balances = {}
+
+    for (from_user, to_user), amount in balances.items():
+        reverse_key = (to_user, from_user)
+
+        if reverse_key in simplified_balances:
+            simplified_balances[reverse_key] -= amount
+        else:
+            simplified_balances[(from_user, to_user)] = amount
+
+    balances = simplified_balances
+
     result = []
 
     for (from_user_id, to_user_id), amount in balances.items():
