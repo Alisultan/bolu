@@ -1,27 +1,27 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
+
+from backend.database import Base, engine, SessionLocal
+from backend.models import User, Group, GroupMember, Expense, ExpenseParticipant
 
 app = FastAPI(title="Bolu API")
 
-users = []
-groups = []
-expenses = []
-
-
-class UserCreate(BaseModel):
-    name: str
-
-
-class GroupCreate(BaseModel):
-    name: str
-
+Base.metadata.create_all(bind=engine)
 
 class ExpenseCreate(BaseModel):
     group_id: int
     paid_by: int
-    amount: float
+    amount: int
     description: str
     participants: list[int]
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 @app.get("/")
@@ -30,94 +30,86 @@ def home():
 
 
 @app.post("/users")
-def create_user(user: UserCreate):
-    new_user = {
-        "id": len(users) + 1,
-        "name": user.name
-    }
-    users.append(new_user)
-    return new_user
+def create_user(name: str, db: Session = Depends(get_db)):
+    user = User(name=name)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @app.get("/users")
-def get_users():
-    return users
+def get_users(db: Session = Depends(get_db)):
+    return db.query(User).all()
 
 
 @app.post("/groups")
-def create_group(group: GroupCreate):
-    new_group = {
-        "id": len(groups) + 1,
-        "name": group.name,
-        "members": []
-    }
-    groups.append(new_group)
-    return new_group
-
-
-@app.post("/groups/{group_id}/members/{user_id}")
-def add_member(group_id: int, user_id: int):
-    group = next((g for g in groups if g["id"] == group_id), None)
-
-    if not group:
-        return {"error": "Group not found"}
-
-    if user_id not in group["members"]:
-        group["members"].append(user_id)
-
+def create_group(name: str, created_by: int, db: Session = Depends(get_db)):
+    group = Group(name=name, created_by=created_by)
+    db.add(group)
+    db.commit()
+    db.refresh(group)
     return group
 
 
 @app.get("/groups")
-def get_groups():
-    return groups
+def get_groups(db: Session = Depends(get_db)):
+    return db.query(Group).all()
 
+@app.post("/groups/{group_id}/members/{user_id}")
+def add_member_to_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
+    member = GroupMember(group_id=group_id, user_id=user_id)
+
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+
+    return member
+
+
+@app.get("/groups/{group_id}/members")
+def get_group_members(group_id: int, db: Session = Depends(get_db)):
+    members = (
+        db.query(User)
+        .join(GroupMember, User.id == GroupMember.user_id)
+        .filter(GroupMember.group_id == group_id)
+        .all()
+    )
+
+    return members
 
 @app.post("/expenses")
-def create_expense(expense: ExpenseCreate):
-    split_amount = expense.amount / len(expense.participants)
+def create_expense(expense: ExpenseCreate, db: Session = Depends(get_db)):
+    new_expense = Expense(
+        group_id=expense.group_id,
+        paid_by=expense.paid_by,
+        amount=expense.amount,
+        description=expense.description
+    )
 
-    new_expense = {
-        "id": len(expenses) + 1,
-        "group_id": expense.group_id,
-        "paid_by": expense.paid_by,
-        "amount": expense.amount,
-        "description": expense.description,
-        "participants": expense.participants,
-        "split_amount": split_amount
+    db.add(new_expense)
+    db.commit()
+    db.refresh(new_expense)
+
+    for user_id in expense.participants:
+        participant = ExpenseParticipant(
+            expense_id=new_expense.id,
+            user_id=user_id
+        )
+        db.add(participant)
+
+    db.commit()
+
+    return {
+        "id": new_expense.id,
+        "group_id": new_expense.group_id,
+        "paid_by": new_expense.paid_by,
+        "amount": new_expense.amount,
+        "description": new_expense.description,
+        "participants": expense.participants
     }
-
-    expenses.append(new_expense)
-    return new_expense
 
 
 @app.get("/expenses")
-def get_expenses():
-    return expenses
-
-
-@app.get("/groups/{group_id}/balances")
-def get_balances(group_id: int):
-    balances = {}
-
-    group_expenses = [e for e in expenses if e["group_id"] == group_id]
-
-    for expense in group_expenses:
-        paid_by = expense["paid_by"]
-        split_amount = expense["split_amount"]
-
-        for participant in expense["participants"]:
-            if participant != paid_by:
-                key = (participant, paid_by)
-                balances[key] = balances.get(key, 0) + split_amount
-
-    result = []
-
-    for (from_user, to_user), amount in balances.items():
-        result.append({
-            "from_user": from_user,
-            "to_user": to_user,
-            "amount": round(amount, 2)
-        })
-
-    return result
+def get_expenses(db: Session = Depends(get_db)):
+    return db.query(Expense).all()
