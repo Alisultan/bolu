@@ -1,0 +1,9 @@
+{
+  "app_name": "Bolu",
+  "create_group": "Create group",
+  "add_expense": "Add expense",
+  "balance": "Balance",
+  "who_paid": "Who paid?",
+  "amount": "Amount",
+  "participants": "Participants"
+}
