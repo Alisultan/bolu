@@ -1,5 +1,6 @@
 'use client';
 
+import Link from "next/link";
 import { useEffect, useState } from 'react';
 
 type Group = {
@@ -69,9 +70,13 @@ export default function Home() {
 
           <div className="space-y-3">
             {groups.map((group) => (
-              <div key={group.id} className="border rounded p-4">
-                {group.name}
-              </div>
+          <Link
+            key={group.id}
+            href={`/groups/${group.id}`}
+            className="block border rounded p-4 hover:bg-gray-50"
+          >
+            {group.name}
+          </Link>
             ))}
           </div>
         </div>
