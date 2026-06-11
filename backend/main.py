@@ -60,6 +60,9 @@ def get_users(db: Session = Depends(get_db)):
 
 @app.post("/groups")
 def create_group(name: str, created_by: int, db: Session = Depends(get_db)):
+    if len(name.strip()) == 0:
+        return {"error": "Group name cannot be empty"}
+    
     group = Group(name=name, created_by=created_by)
     db.add(group)
     db.commit()

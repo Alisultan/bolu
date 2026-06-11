@@ -10,12 +10,32 @@ type Group = {
 
 export default function Home() {
   const [groups, setGroups] = useState<Group[]>([]);
+  const [groupName, setGroupName] = useState('');
 
   useEffect(() => {
     fetch('http://127.0.0.1:8000/groups')
       .then((res) => res.json())
       .then((data) => setGroups(data));
   }, []);
+
+  const createGroup = async () => {
+
+    if (groupName.trim().length === 0) {
+      alert("Group name cannot be empty");
+      return;
+    }
+    const response = await fetch(
+      `http://127.0.0.1:8000/groups?name=${groupName}&created_by=1`,
+      {
+        method: 'POST',
+      }
+    );
+
+    const newGroup = await response.json();
+
+    setGroups([...groups, newGroup]);
+    setGroupName('');
+  };
 
   return (
     <main className="min-h-screen bg-gray-100 p-10">
@@ -30,7 +50,18 @@ export default function Home() {
 
         <div className="bg-white p-6 rounded-xl shadow mb-6">
           <h2 className="text-2xl font-semibold mb-4">Create Group</h2>
-          <input className="border p-3 rounded w-full" placeholder="Family" />
+          <input
+            className="border p-3 rounded w-full"
+            placeholder="Group Name"
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+          />
+          <button
+            onClick={createGroup}
+            className="mt-3 bg-black text-white px-4 py-2 rounded"
+          >
+            Create Group
+          </button>
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow">
