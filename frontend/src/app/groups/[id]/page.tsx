@@ -1,5 +1,7 @@
 'use client';
 
+// need to add comments later
+
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
