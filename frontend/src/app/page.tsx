@@ -21,7 +21,14 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetchGroups();
+    const loadGroups = async () => {
+      const res = await fetch('http://127.0.0.1:8000/groups');
+      const data = await res.json();
+
+      setGroups(data);
+    };
+
+    loadGroups();
   }, []);
 
   const createGroup = async () => {

@@ -14,12 +14,21 @@ type Group = {
   created_by: number;
 };
 
+type SplitType = 'equal' | 'percentage' | 'exact';
+
+type ExpenseParticipant = {
+  user_id: number;
+  share_amount: number;
+};
+
 type Expense = {
   id: number;
   group_id: number;
   paid_by: number;
   amount: number;
   description: string;
+  split_type: SplitType;
+  participants: ExpenseParticipant[];
 };
 
 type Balance = {
@@ -50,23 +59,91 @@ export default function GroupPage() {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [paidBy, setPaidBy] = useState('');
+  const [splitType, setSplitType] = useState<SplitType>('equal');
+  const [splitValues, setSplitValues] = useState<Record<number, string>>({});
+  // Expense editing
+  const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
+  const [editDescription, setEditDescription] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editPaidBy, setEditPaidBy] = useState('');
+  const [editSplitType, setEditSplitType] = useState<SplitType>('equal');
+  const [editSplitValues, setEditSplitValues] = useState<
+    Record<number, string>
+  >({});
 
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
     null
   );
 
-  const fetchGroup = async () => {
-    const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}`);
-    const data = await res.json();
-    setGroup(data);
+  const getMemberName = (userId: number) => {
+    const member = members.find((currentMember) => currentMember.id === userId);
+    return member ? member.name : `User #${userId}`;
   };
 
+  const resetSplitValues = () => {
+    setSplitValues({});
+  };
+
+  const resetEditSplitValues = () => {
+    setEditSplitValues({});
+  };
+
+  const buildParticipantsPayload = (
+    currentSplitType: SplitType,
+    values: Record<number, string>
+  ) => {
+    if (currentSplitType === 'equal') {
+      return members.map((member) => member.id);
+    }
+
+    return members.map((member) => ({
+      user_id: member.id,
+      ...(currentSplitType === 'exact'
+        ? { amount: Number(values[member.id] || 0) }
+        : { percentage: Number(values[member.id] || 0) }),
+    }));
+  };
+
+  const validateSplit = (
+    currentAmount: string,
+    currentSplitType: SplitType,
+    values: Record<number, string>
+  ) => {
+    if (currentSplitType === 'equal') return true;
+
+    const total = members.reduce(
+      (sum, member) => sum + Number(values[member.id] || 0),
+      0
+    );
+
+    if (
+      currentSplitType === 'percentage' &&
+      Math.round(total * 100) / 100 !== 100
+    ) {
+      alert('Percentages must add up to 100');
+      return false;
+    }
+
+    if (
+      currentSplitType === 'exact' &&
+      Math.round(total * 100) / 100 !==
+        Math.round(Number(currentAmount) * 100) / 100
+    ) {
+      alert('Exact split amounts must add up to the expense amount');
+      return false;
+    }
+
+    return true;
+  };
+
+  // Fetch members of current group
   const fetchMembers = async () => {
     const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}/members`);
     const data = await res.json();
     setMembers(data);
   };
 
+  // Fetch expenses and filter by current group
   const fetchExpenses = async () => {
     const res = await fetch('http://127.0.0.1:8000/expenses');
     const data = await res.json();
@@ -76,12 +153,14 @@ export default function GroupPage() {
     );
   };
 
+  // Fetch balances from backend
   const fetchBalances = async () => {
     const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}/balances`);
     const data = await res.json();
     setBalances(data);
   };
 
+  // Add new member
   const addMember = async () => {
     const cleanName = memberName.trim();
 
@@ -114,6 +193,7 @@ export default function GroupPage() {
     fetchBalances();
   };
 
+  // Delete member
   const deleteMember = async (userId: number) => {
     const res = await fetch(
       `http://127.0.0.1:8000/groups/${groupId}/members/${userId}`,
@@ -132,6 +212,7 @@ export default function GroupPage() {
     fetchBalances();
   };
 
+  // Add expense
   const addExpense = async () => {
     if (description.trim().length === 0) {
       alert('Description cannot be empty');
@@ -153,6 +234,10 @@ export default function GroupPage() {
       return;
     }
 
+    if (!validateSplit(amount, splitType, splitValues)) {
+      return;
+    }
+
     const response = await fetch('http://127.0.0.1:8000/expenses', {
       method: 'POST',
       headers: {
@@ -163,19 +248,28 @@ export default function GroupPage() {
         paid_by: Number(paidBy),
         amount: Number(amount),
         description,
-        participants: members.map((member) => member.id),
+        split_type: splitType,
+        participants: buildParticipantsPayload(splitType, splitValues),
       }),
     });
 
     const newExpense = await response.json();
 
+    if (newExpense.detail || newExpense.error) {
+      alert(newExpense.detail || newExpense.error);
+      return;
+    }
+
     setExpenses([...expenses, newExpense]);
     setDescription('');
     setAmount('');
     setPaidBy('');
+    setSplitType('equal');
+    resetSplitValues();
     fetchBalances();
   };
 
+  // Delete expense
   const deleteExpense = async (expenseId: number) => {
     await fetch(`http://127.0.0.1:8000/expenses/${expenseId}`, {
       method: 'DELETE',
@@ -185,6 +279,85 @@ export default function GroupPage() {
     fetchBalances();
   };
 
+  const startEditingExpense = (expense: Expense) => {
+    setEditingExpenseId(expense.id);
+    setEditDescription(expense.description);
+    setEditAmount(expense.amount.toString());
+    setEditPaidBy(expense.paid_by.toString());
+    setEditSplitType(expense.split_type || 'equal');
+    setEditSplitValues(
+      expense.participants.reduce<Record<number, string>>(
+        (values, participant) => {
+          values[participant.user_id] =
+            expense.split_type === 'percentage'
+              ? ((participant.share_amount / expense.amount) * 100).toFixed(2)
+              : participant.share_amount.toString();
+          return values;
+        },
+        {}
+      )
+    );
+  };
+
+  const cancelExpenseEdit = () => {
+    setEditingExpenseId(null);
+    resetEditSplitValues();
+  };
+
+  const saveExpenseEdit = async () => {
+    if (editingExpenseId === null) return;
+
+    if (editDescription.trim().length === 0) {
+      alert('Description cannot be empty');
+      return;
+    }
+
+    if (!editAmount || Number(editAmount) <= 0) {
+      alert('Amount must be greater than 0');
+      return;
+    }
+
+    if (!editPaidBy) {
+      alert('Please select who paid');
+      return;
+    }
+
+    if (!validateSplit(editAmount, editSplitType, editSplitValues)) {
+      return;
+    }
+
+    const response = await fetch(
+      `http://127.0.0.1:8000/expenses/${editingExpenseId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          description: editDescription,
+          amount: Number(editAmount),
+          paid_by: Number(editPaidBy),
+          split_type: editSplitType,
+          participants: buildParticipantsPayload(editSplitType, editSplitValues),
+        }),
+      }
+    );
+
+    const updatedExpense = await response.json();
+
+    if (updatedExpense.detail || updatedExpense.error) {
+      alert(updatedExpense.detail || updatedExpense.error);
+      return;
+    }
+
+    setEditingExpenseId(null);
+    resetEditSplitValues();
+
+    fetchExpenses();
+    fetchBalances();
+  };
+
+  // Delete group and return home
   const deleteGroup = async () => {
     await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
       method: 'DELETE',
@@ -193,6 +366,7 @@ export default function GroupPage() {
     router.push('/');
   };
 
+  // Settle debt
   const settleBalance = async (balance: Balance) => {
     await fetch('http://127.0.0.1:8000/settlements', {
       method: 'POST',
@@ -210,6 +384,7 @@ export default function GroupPage() {
     fetchBalances();
   };
 
+  // Run selected confirmation action
   const handleConfirm = async () => {
     if (!confirmAction) return;
 
@@ -232,15 +407,39 @@ export default function GroupPage() {
     setConfirmAction(null);
   };
 
+  // Load data when page opens
   useEffect(() => {
-    fetchGroup();
-    fetchMembers();
-    fetchExpenses();
-    fetchBalances();
+    const loadGroupPage = async () => {
+      const [groupRes, membersRes, expensesRes, balancesRes] = await Promise.all([
+        fetch(`http://127.0.0.1:8000/groups/${groupId}`),
+        fetch(`http://127.0.0.1:8000/groups/${groupId}/members`),
+        fetch('http://127.0.0.1:8000/expenses'),
+        fetch(`http://127.0.0.1:8000/groups/${groupId}/balances`),
+      ]);
+
+      const [groupData, membersData, expensesData, balancesData] =
+        await Promise.all([
+          groupRes.json(),
+          membersRes.json(),
+          expensesRes.json(),
+          balancesRes.json(),
+        ]);
+
+      setGroup(groupData);
+      setMembers(membersData);
+      setExpenses(
+        expensesData.filter(
+          (expense: Expense) => expense.group_id === Number(groupId)
+        )
+      );
+      setBalances(balancesData);
+    };
+
+    loadGroupPage();
   }, [groupId]);
 
   return (
-    <main className="min-h-screen bg-gray-100 p-10">
+    <main className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -249,15 +448,15 @@ export default function GroupPage() {
           </h1>
         </div>
 
-        {/* Main grid */}
+        {/* Main layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Members */}
-          <div className="bg-white p-6 rounded-xl shadow">
+          <section className="bg-white p-6 rounded-2xl shadow">
             <h2 className="text-2xl font-semibold mb-4">
               Members ({members.length})
             </h2>
 
-            <div className="space-y-2 mb-4">
+            <div className="space-y-3 mb-5">
               {members.length === 0 && (
                 <p className="text-gray-500">No members yet.</p>
               )}
@@ -265,9 +464,9 @@ export default function GroupPage() {
               {members.map((member) => (
                 <div
                   key={member.id}
-                  className="border rounded-lg p-3 flex justify-between items-center"
+                  className="border rounded-xl p-4 flex justify-between items-center"
                 >
-                  <span>{member.name}</span>
+                  <span className="font-medium">{member.name}</span>
 
                   <button
                     onClick={() =>
@@ -287,7 +486,7 @@ export default function GroupPage() {
 
             <div className="flex gap-3">
               <input
-                className="border p-3 rounded w-full"
+                className="border p-3 rounded-xl w-full"
                 placeholder="Member name"
                 value={memberName}
                 onChange={(e) => setMemberName(e.target.value)}
@@ -295,26 +494,26 @@ export default function GroupPage() {
 
               <button
                 onClick={addMember}
-                className="bg-black text-white px-4 py-2 rounded"
+                className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
               >
                 Add
               </button>
             </div>
-          </div>
+          </section>
 
           {/* Add Expense */}
-          <div className="bg-white p-6 rounded-xl shadow">
+          <section className="bg-white p-6 rounded-2xl shadow">
             <h2 className="text-2xl font-semibold mb-4">Add Expense</h2>
 
             <input
-              className="border p-3 rounded w-full mb-3"
+              className="border p-3 rounded-xl w-full mb-3"
               placeholder="Description, e.g. Dinner"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
 
             <input
-              className="border p-3 rounded w-full mb-3"
+              className="border p-3 rounded-xl w-full mb-3"
               placeholder="Amount"
               type="number"
               value={amount}
@@ -322,7 +521,7 @@ export default function GroupPage() {
             />
 
             <select
-              className="border p-3 rounded w-full mb-3"
+              className="border p-3 rounded-xl w-full mb-3"
               value={paidBy}
               onChange={(e) => setPaidBy(e.target.value)}
             >
@@ -335,84 +534,235 @@ export default function GroupPage() {
               ))}
             </select>
 
+            <div className="mb-3">
+              <label className="block text-sm font-medium mb-2">Split type</label>
+              <select
+                className="border p-3 rounded-xl w-full"
+                value={splitType}
+                onChange={(e) => {
+                  setSplitType(e.target.value as SplitType);
+                  resetSplitValues();
+                }}
+              >
+                <option value="equal">Equal split</option>
+                <option value="percentage">Percentage split</option>
+                <option value="exact">Exact split</option>
+              </select>
+            </div>
+
+            {splitType !== 'equal' && (
+              <div className="border rounded-xl p-4 mb-3 bg-gray-50 space-y-3">
+                {members.map((member) => (
+                  <div key={member.id}>
+                    <label className="block text-sm font-medium mb-1">
+                      {member.name}
+                    </label>
+                    <input
+                      className="border p-3 rounded-xl w-full bg-white"
+                      placeholder={splitType === 'exact' ? 'Amount' : 'Percentage'}
+                      type="number"
+                      value={splitValues[member.id] || ''}
+                      onChange={(e) =>
+                        setSplitValues({
+                          ...splitValues,
+                          [member.id]: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
             <button
               onClick={addExpense}
-              className="bg-black text-white px-4 py-2 rounded"
+              className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
             >
               Add Expense
             </button>
-          </div>
+          </section>
 
           {/* Expenses */}
-          <div className="bg-white p-6 rounded-xl shadow">
+          <section className="bg-white p-6 rounded-2xl shadow">
             <h2 className="text-2xl font-semibold mb-4">
               Expenses ({expenses.length})
             </h2>
 
-            <div className="space-y-3">
+            <div className="space-y-4">
               {expenses.length === 0 && (
                 <p className="text-gray-500">No expenses yet.</p>
               )}
 
               {expenses.map((expense) => {
                 const payer = members.find((m) => m.id === expense.paid_by);
+                const isEditing = editingExpenseId === expense.id;
 
                 return (
                   <div
                     key={expense.id}
-                    className="border rounded-xl p-4 bg-gray-50"
+                    className="border rounded-2xl p-5 bg-gray-50"
                   >
-                    <div className="flex justify-between items-start gap-4">
-                      <div>
-                        <h3 className="font-semibold text-lg">
-                          {expense.description}
-                        </h3>
+                    {isEditing ? (
+                      <div className="space-y-3">
+                        <input
+                          className="border p-3 rounded-xl w-full bg-white"
+                          placeholder="Description"
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                        />
 
-                        <p className="text-sm text-gray-600 mt-1">
-                          Paid by:{' '}
-                          <span className="font-medium text-black">
-                            {payer ? payer.name : `User #${expense.paid_by}`}
-                          </span>
-                        </p>
+                        <input
+                          className="border p-3 rounded-xl w-full bg-white"
+                          placeholder="Amount"
+                          type="number"
+                          value={editAmount}
+                          onChange={(e) => setEditAmount(e.target.value)}
+                        />
 
-                        <p className="text-sm text-gray-600">
-                          Amount:{' '}
-                          <span className="font-medium text-black">
-                            {expense.amount.toLocaleString()} ₸
-                          </span>
-                        </p>
+                        <select
+                          className="border p-3 rounded-xl w-full bg-white"
+                          value={editPaidBy}
+                          onChange={(e) => setEditPaidBy(e.target.value)}
+                        >
+                          <option value="">Who paid?</option>
 
-                        <p className="text-sm text-gray-600">
-                          Split between: {members.length} members
-                        </p>
+                          {members.map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          className="border p-3 rounded-xl w-full bg-white"
+                          value={editSplitType}
+                          onChange={(e) => {
+                            setEditSplitType(e.target.value as SplitType);
+                            resetEditSplitValues();
+                          }}
+                        >
+                          <option value="equal">Equal split</option>
+                          <option value="percentage">Percentage split</option>
+                          <option value="exact">Exact split</option>
+                        </select>
+
+                        {editSplitType !== 'equal' && (
+                          <div className="border rounded-xl p-4 bg-white space-y-3">
+                            {members.map((member) => (
+                              <div key={member.id}>
+                                <label className="block text-sm font-medium mb-1">
+                                  {member.name}
+                                </label>
+                                <input
+                                  className="border p-3 rounded-xl w-full"
+                                  placeholder={
+                                    editSplitType === 'exact'
+                                      ? 'Amount'
+                                      : 'Percentage'
+                                  }
+                                  type="number"
+                                  value={editSplitValues[member.id] || ''}
+                                  onChange={(e) =>
+                                    setEditSplitValues({
+                                      ...editSplitValues,
+                                      [member.id]: e.target.value,
+                                    })
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex justify-end gap-3">
+                          <button
+                            onClick={cancelExpenseEdit}
+                            className="border px-4 py-2 rounded-xl hover:bg-gray-100 text-sm"
+                          >
+                            Cancel
+                          </button>
+
+                          <button
+                            onClick={saveExpenseEdit}
+                            className="bg-black text-white px-4 py-2 rounded-xl hover:bg-gray-800 text-sm"
+                          >
+                            Save
+                          </button>
+                        </div>
                       </div>
+                    ) : (
+                      <div className="flex justify-between items-start gap-4">
+                        <div>
+                          <h3 className="font-semibold text-lg">
+                            {expense.description}
+                          </h3>
 
-                      <button
-                        onClick={() =>
-                          setConfirmAction({
-                            type: 'delete-expense',
-                            expenseId: expense.id,
-                            message: `Delete expense "${expense.description}"?`,
-                          })
-                        }
-                        className="text-red-600 hover:underline text-sm"
-                      >
-                        Delete
-                      </button>
-                    </div>
+                          <p className="text-sm text-gray-600 mt-2">
+                            Paid by:{' '}
+                            <span className="font-medium text-black">
+                              {payer ? payer.name : `User #${expense.paid_by}`}
+                            </span>
+                          </p>
+
+                          <p className="text-sm text-gray-600">
+                            Amount:{' '}
+                            <span className="font-medium text-black">
+                              {expense.amount.toLocaleString()} ₸
+                            </span>
+                          </p>
+
+                          <p className="text-sm text-gray-600 capitalize">
+                            Split type: {expense.split_type || 'equal'}
+                          </p>
+
+                          <div className="mt-2 text-sm text-gray-600">
+                            {expense.participants.map((participant) => (
+                              <p key={participant.user_id}>
+                                {getMemberName(participant.user_id)} owes{' '}
+                                <span className="font-medium text-black">
+                                  {participant.share_amount.toLocaleString()} ₸
+                                </span>
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => startEditingExpense(expense)}
+                            className="text-blue-600 hover:underline text-sm"
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              setConfirmAction({
+                                type: 'delete-expense',
+                                expenseId: expense.id,
+                                message: `Delete expense "${expense.description}"?`,
+                              })
+                            }
+                            className="text-red-600 hover:underline text-sm"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
-          </div>
+          </section>
 
           {/* Balances */}
-          <div className="bg-white p-6 rounded-xl shadow">
+          <section className="bg-white p-6 rounded-2xl shadow">
             <h2 className="text-2xl font-semibold mb-4">Balances</h2>
 
-            <div className="space-y-3">
+            <div className="space-y-4">
               {balances.length === 0 && (
-                <p className="text-green-700 bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-green-700 bg-green-50 border border-green-200 rounded-xl p-4">
                   Everyone is settled up.
                 </p>
               )}
@@ -420,7 +770,7 @@ export default function GroupPage() {
               {balances.map((balance, index) => (
                 <div
                   key={index}
-                  className="border rounded-xl p-4 bg-red-50 border-red-200"
+                  className="border border-red-200 rounded-2xl p-5 bg-red-50"
                 >
                   <div className="flex justify-between items-center gap-4">
                     <div>
@@ -441,7 +791,7 @@ export default function GroupPage() {
                           message: `Settle ${balance.amount.toLocaleString()} ₸ from ${balance.from_user_name} to ${balance.to_user_name}?`,
                         })
                       }
-                      className="bg-black text-white px-4 py-2 rounded text-sm"
+                      className="bg-black text-white px-5 py-2 rounded-xl text-sm hover:bg-gray-800"
                     >
                       Settle
                     </button>
@@ -449,17 +799,16 @@ export default function GroupPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         </div>
 
-        {/* Delete group at bottom */}
+        {/* Delete group */}
         <div className="mt-8 flex justify-center">
           <button
             onClick={() =>
               setConfirmAction({
                 type: 'delete-group',
-                message:
-                  'Delete this group? This action cannot be undone.',
+                message: 'Delete this group? This action cannot be undone.',
               })
             }
             className="text-red-600 hover:underline text-sm"
@@ -469,10 +818,10 @@ export default function GroupPage() {
         </div>
       </div>
 
-      {/* Custom confirmation modal */}
+      {/* Confirmation modal */}
       {confirmAction && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
             <h2 className="text-xl font-semibold mb-2">Are you sure?</h2>
 
             <p className="text-gray-600 mb-6">{confirmAction.message}</p>
@@ -480,14 +829,14 @@ export default function GroupPage() {
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setConfirmAction(null)}
-                className="border px-4 py-2 rounded"
+                className="border px-5 py-2 rounded-xl hover:bg-gray-50"
               >
                 Cancel
               </button>
 
               <button
                 onClick={handleConfirm}
-                className="bg-red-600 text-white px-4 py-2 rounded"
+                className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700"
               >
                 Confirm
               </button>

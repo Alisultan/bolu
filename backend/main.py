@@ -1,5 +1,8 @@
-from fastapi import FastAPI, Depends
+from typing import Literal, Optional, Union
+
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -18,12 +21,63 @@ app.add_middleware(
 
 Base.metadata.create_all(bind=engine)
 
+def ensure_runtime_columns():
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE expenses "
+                "ADD COLUMN IF NOT EXISTS split_type VARCHAR NOT NULL DEFAULT 'equal'"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE expense_participants "
+                "ADD COLUMN IF NOT EXISTS share_amount DOUBLE PRECISION NOT NULL DEFAULT 0"
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE expense_participants ep
+                SET share_amount = e.amount / participant_counts.count
+                FROM expenses e
+                JOIN (
+                    SELECT expense_id, COUNT(*) AS count
+                    FROM expense_participants
+                    GROUP BY expense_id
+                ) participant_counts ON participant_counts.expense_id = e.id
+                WHERE ep.expense_id = e.id
+                AND e.split_type = 'equal'
+                AND ep.share_amount = 0
+                AND participant_counts.count > 0
+                """
+            )
+        )
+
+
+ensure_runtime_columns()
+
+
+class ExpenseParticipantInput(BaseModel):
+    user_id: int
+    amount: Optional[float] = None
+    percentage: Optional[float] = None
+
+
 class ExpenseCreate(BaseModel):
     group_id: int
     paid_by: int
     amount: float
     description: str
-    participants: list[int]
+    split_type: Literal["equal", "percentage", "exact"] = "equal"
+    participants: list[Union[int, ExpenseParticipantInput]]
+
+class ExpenseUpdate(BaseModel):
+    paid_by: int
+    amount: float
+    description: str
+    split_type: Literal["equal", "percentage", "exact"] = "equal"
+    participants: list[Union[int, ExpenseParticipantInput]]
 
 class SettlementCreate(BaseModel):
     group_id: int
@@ -37,6 +91,123 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def normalize_participants(
+    amount: float,
+    split_type: str,
+    participants: list[Union[int, ExpenseParticipantInput]]
+):
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+
+    if len(participants) == 0:
+        raise HTTPException(status_code=400, detail="Choose at least one participant")
+
+    normalized = []
+
+    for participant in participants:
+        if isinstance(participant, int):
+            normalized.append({
+                "user_id": participant,
+                "amount": None,
+                "percentage": None
+            })
+        else:
+            normalized.append({
+                "user_id": participant.user_id,
+                "amount": participant.amount,
+                "percentage": participant.percentage
+            })
+
+    user_ids = [participant["user_id"] for participant in normalized]
+
+    if len(user_ids) != len(set(user_ids)):
+        raise HTTPException(status_code=400, detail="Participants must be unique")
+
+    if split_type == "equal":
+        share_amount = amount / len(normalized)
+        return [
+            {"user_id": participant["user_id"], "share_amount": share_amount}
+            for participant in normalized
+        ]
+
+    if split_type == "exact":
+        exact_total = 0
+        exact_splits = []
+
+        for participant in normalized:
+            participant_amount = participant["amount"]
+
+            if participant_amount is None or participant_amount < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Exact split amounts must be zero or greater"
+                )
+
+            exact_total += participant_amount
+            exact_splits.append({
+                "user_id": participant["user_id"],
+                "share_amount": participant_amount
+            })
+
+        if round(exact_total, 2) != round(amount, 2):
+            raise HTTPException(
+                status_code=400,
+                detail="Exact split amounts must add up to the expense amount"
+            )
+
+        return exact_splits
+
+    percentage_total = 0
+    percentage_splits = []
+
+    for participant in normalized:
+        percentage = participant["percentage"]
+
+        if percentage is None or percentage < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Percentages must be zero or greater"
+            )
+
+        percentage_total += percentage
+        percentage_splits.append({
+            "user_id": participant["user_id"],
+            "share_amount": amount * percentage / 100
+        })
+
+    if round(percentage_total, 2) != 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Percentages must add up to 100"
+        )
+
+    return percentage_splits
+
+
+def serialize_expense(expense: Expense, db: Session):
+    participants = (
+        db.query(ExpenseParticipant)
+        .filter(ExpenseParticipant.expense_id == expense.id)
+        .all()
+    )
+
+    return {
+        "id": expense.id,
+        "group_id": expense.group_id,
+        "paid_by": expense.paid_by,
+        "amount": expense.amount,
+        "description": expense.description,
+        "split_type": expense.split_type,
+        "participants": [
+            {
+                "user_id": participant.user_id,
+                "share_amount": participant.share_amount
+            }
+            for participant in participants
+        ]
+    }
 
 
 @app.get("/")
@@ -191,25 +362,6 @@ def delete_member_from_group(group_id: int, user_id: int, db: Session = Depends(
 
     return {"message": "Member removed from group"}
 
-@app.delete("/groups/{group_id}/members/{user_id}")
-def delete_member_from_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
-    member = (
-        db.query(GroupMember)
-        .filter(
-            GroupMember.group_id == group_id,
-            GroupMember.user_id == user_id
-        )
-        .first()
-    )
-
-    if member is None:
-        return {"error": "Member not found in this group"}
-
-    db.delete(member)
-    db.commit()
-
-    return {"message": "Member removed from group"}
-
 @app.get("/groups/{group_id}/members")
 def get_group_members(group_id: int, db: Session = Depends(get_db)):
     members = (
@@ -223,39 +375,83 @@ def get_group_members(group_id: int, db: Session = Depends(get_db)):
 
 @app.post("/expenses")
 def create_expense(expense: ExpenseCreate, db: Session = Depends(get_db)):
+    participant_splits = normalize_participants(
+        expense.amount,
+        expense.split_type,
+        expense.participants
+    )
+
     new_expense = Expense(
         group_id=expense.group_id,
         paid_by=expense.paid_by,
         amount=expense.amount,
-        description=expense.description
+        description=expense.description.strip(),
+        split_type=expense.split_type
     )
 
     db.add(new_expense)
     db.commit()
     db.refresh(new_expense)
 
-    for user_id in expense.participants:
+    for participant_split in participant_splits:
         participant = ExpenseParticipant(
             expense_id=new_expense.id,
-            user_id=user_id
+            user_id=participant_split["user_id"],
+            share_amount=participant_split["share_amount"]
         )
         db.add(participant)
 
     db.commit()
 
-    return {
-        "id": new_expense.id,
-        "group_id": new_expense.group_id,
-        "paid_by": new_expense.paid_by,
-        "amount": new_expense.amount,
-        "description": new_expense.description,
-        "participants": expense.participants
-    }
+    return serialize_expense(new_expense, db)
 
+@app.put("/expenses/{expense_id}")
+def update_expense(
+    expense_id: int,
+    expense_update: ExpenseUpdate,
+    db: Session = Depends(get_db)
+):
+    expense = (
+        db.query(Expense)
+        .filter(Expense.id == expense_id)
+        .first()
+    )
+
+    if expense is None:
+        return {"error": "Expense not found"}
+
+    participant_splits = normalize_participants(
+        expense_update.amount,
+        expense_update.split_type,
+        expense_update.participants
+    )
+
+    expense.description = expense_update.description
+    expense.amount = expense_update.amount
+    expense.paid_by = expense_update.paid_by
+    expense.split_type = expense_update.split_type
+
+    db.query(ExpenseParticipant).filter(
+        ExpenseParticipant.expense_id == expense.id
+    ).delete()
+
+    for participant_split in participant_splits:
+        participant = ExpenseParticipant(
+            expense_id=expense.id,
+            user_id=participant_split["user_id"],
+            share_amount=participant_split["share_amount"]
+        )
+        db.add(participant)
+
+    db.commit()
+    db.refresh(expense)
+
+    return serialize_expense(expense, db)
 
 @app.get("/expenses")
 def get_expenses(db: Session = Depends(get_db)):
-    return db.query(Expense).all()
+    expenses = db.query(Expense).all()
+    return [serialize_expense(expense, db) for expense in expenses]
 
 @app.delete("/expenses/{expense_id}")
 def delete_expense(expense_id: int, db: Session = Depends(get_db)):
@@ -289,12 +485,10 @@ def get_group_balances(group_id: int, db: Session = Depends(get_db)):
         if len(participants) == 0:
             continue
 
-        split_amount = expense.amount / len(participants)
-
         for participant in participants:
             if participant.user_id != expense.paid_by:
                 key = (participant.user_id, expense.paid_by)
-                balances[key] = balances.get(key, 0) + split_amount
+                balances[key] = balances.get(key, 0) + participant.share_amount
 
     group_settlements = db.query(Settlement).filter(Settlement.group_id == group_id).all()
 

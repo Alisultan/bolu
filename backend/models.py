@@ -31,6 +31,7 @@ class Expense(Base):
     paid_by = Column(Integer, ForeignKey("users.id"))
     amount = Column(Float, nullable=False)
     description = Column(String, nullable=False)
+    split_type = Column(String, nullable=False, default="equal")
 
 
 class ExpenseParticipant(Base):
@@ -39,6 +40,7 @@ class ExpenseParticipant(Base):
     id = Column(Integer, primary_key=True, index=True)
     expense_id = Column(Integer, ForeignKey("expenses.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
+    share_amount = Column(Float, nullable=False, default=0)
 
 class Settlement(Base):
     __tablename__ = "settlements"
