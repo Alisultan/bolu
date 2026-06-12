@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
+import { FeedbackMessage, useFeedback } from '../../components/useFeedback';
 import { useLanguage } from '../../i18n/LanguageProvider';
 import type { TranslationKey } from '../../i18n/translations';
 
@@ -121,7 +122,17 @@ export default function GroupWorkspace({ section }: Props) {
     useState<SettlementMode>('full');
   const [partialSettlementAmount, setPartialSettlementAmount] = useState('');
   const [categoriesEnabled, setCategoriesEnabled] = useState(false);
-  const [settingsMessage, setSettingsMessage] = useState('');
+  const [addingMember, setAddingMember] = useState(false);
+  const [addingExpense, setAddingExpense] = useState(false);
+  const [savingExpense, setSavingExpense] = useState(false);
+  const [confirmingAction, setConfirmingAction] = useState(false);
+  const [recordingSettlement, setRecordingSettlement] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const memberFeedback = useFeedback();
+  const expenseFormFeedback = useFeedback();
+  const expenseListFeedback = useFeedback();
+  const settlementFeedback = useFeedback();
+  const settingsFeedback = useFeedback();
 
   const splitTypeLabels: Record<SplitType, string> = {
     equal: t('equal'),
@@ -184,7 +195,8 @@ export default function GroupWorkspace({ section }: Props) {
   const validateSplit = (
     currentAmount: string,
     currentSplitType: SplitType,
-    values: Record<number, string>
+    values: Record<number, string>,
+    showError: (message: string) => void
   ) => {
     if (currentSplitType === 'equal') return true;
 
@@ -197,7 +209,7 @@ export default function GroupWorkspace({ section }: Props) {
       currentSplitType === 'percentage' &&
       Math.round(total * 100) / 100 !== 100
     ) {
-      alert(t('percentagesMustAddTo100'));
+      showError(t('percentagesMustAddTo100'));
       return false;
     }
 
@@ -206,7 +218,7 @@ export default function GroupWorkspace({ section }: Props) {
       Math.round(total * 100) / 100 !==
         Math.round(Number(currentAmount) * 100) / 100
     ) {
-      alert(t('exactSplitMustMatchAmount'));
+      showError(t('exactSplitMustMatchAmount'));
       return false;
     }
 
@@ -251,32 +263,39 @@ export default function GroupWorkspace({ section }: Props) {
     const cleanName = memberName.trim();
 
     if (cleanName.length === 0) {
-      alert(t('memberNameCannotBeEmpty'));
+      memberFeedback.showError(t('memberNameCannotBeEmpty'));
       return;
     }
 
-    const userRes = await fetch(
-      `http://127.0.0.1:8000/users?name=${cleanName}`,
-      { method: 'POST' }
-    );
+    setAddingMember(true);
 
-    const newUser = await userRes.json();
+    try {
+      const userRes = await fetch(
+        `http://127.0.0.1:8000/users?name=${encodeURIComponent(cleanName)}`,
+        { method: 'POST' }
+      );
 
-    const memberRes = await fetch(
-      `http://127.0.0.1:8000/groups/${groupId}/members/${newUser.id}`,
-      { method: 'POST' }
-    );
+      const newUser = await userRes.json();
 
-    const memberData = await memberRes.json();
+      const memberRes = await fetch(
+        `http://127.0.0.1:8000/groups/${groupId}/members/${newUser.id}`,
+        { method: 'POST' }
+      );
 
-    if (memberData.error) {
-      alert(memberData.error);
-      return;
+      const memberData = await memberRes.json();
+
+      if (memberData.error || memberData.detail) {
+        memberFeedback.showError(memberData.error || memberData.detail);
+        return;
+      }
+
+      setMemberName('');
+      memberFeedback.showSuccess(t('memberAdded'));
+      fetchMembers();
+      fetchBalances();
+    } finally {
+      setAddingMember(false);
     }
-
-    setMemberName('');
-    fetchMembers();
-    fetchBalances();
   };
 
   // Delete member
@@ -288,11 +307,12 @@ export default function GroupWorkspace({ section }: Props) {
 
     const data = await res.json();
 
-    if (data.error) {
-      alert(data.error);
+    if (data.error || data.detail) {
+      memberFeedback.showError(data.error || data.detail);
       return;
     }
 
+    memberFeedback.showSuccess(t('memberRemoved'));
     fetchMembers();
     fetchExpenses();
     fetchBalances();
@@ -301,60 +321,74 @@ export default function GroupWorkspace({ section }: Props) {
   // Add expense
   const addExpense = async () => {
     if (description.trim().length === 0) {
-      alert(t('descriptionCannotBeEmpty'));
+      expenseFormFeedback.showError(t('descriptionCannotBeEmpty'));
       return;
     }
 
     if (!amount || Number(amount) <= 0) {
-      alert(t('amountMustBeGreaterThanZero'));
+      expenseFormFeedback.showError(t('amountMustBeGreaterThanZero'));
       return;
     }
 
     if (!paidBy) {
-      alert(t('pleaseSelectWhoPaid'));
+      expenseFormFeedback.showError(t('pleaseSelectWhoPaid'));
       return;
     }
 
     if (members.length === 0) {
-      alert(t('addMembersFirst'));
+      expenseFormFeedback.showError(t('addMembersFirst'));
       return;
     }
 
-    if (!validateSplit(amount, splitType, splitValues)) {
+    if (
+      !validateSplit(
+        amount,
+        splitType,
+        splitValues,
+        expenseFormFeedback.showError
+      )
+    ) {
       return;
     }
 
-    const response = await fetch('http://127.0.0.1:8000/expenses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        group_id: Number(groupId),
-        paid_by: Number(paidBy),
-        amount: Number(amount),
-        description,
-        category,
-        split_type: splitType,
-        participants: buildParticipantsPayload(splitType, splitValues),
-      }),
-    });
+    setAddingExpense(true);
 
-    const newExpense = await response.json();
+    try {
+      const response = await fetch('http://127.0.0.1:8000/expenses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          group_id: Number(groupId),
+          paid_by: Number(paidBy),
+          amount: Number(amount),
+          description,
+          category,
+          split_type: splitType,
+          participants: buildParticipantsPayload(splitType, splitValues),
+        }),
+      });
 
-    if (newExpense.detail || newExpense.error) {
-      alert(newExpense.detail || newExpense.error);
-      return;
+      const newExpense = await response.json();
+
+      if (newExpense.detail || newExpense.error) {
+        expenseFormFeedback.showError(newExpense.detail || newExpense.error);
+        return;
+      }
+
+      setExpenses([...expenses, newExpense]);
+      setDescription('');
+      setAmount('');
+      setPaidBy('');
+      setCategory('Other');
+      setSplitType('equal');
+      resetSplitValues();
+      expenseFormFeedback.showSuccess(t('expenseSaved'));
+      fetchBalances();
+    } finally {
+      setAddingExpense(false);
     }
-
-    setExpenses([...expenses, newExpense]);
-    setDescription('');
-    setAmount('');
-    setPaidBy('');
-    setCategory('Other');
-    setSplitType('equal');
-    resetSplitValues();
-    fetchBalances();
   };
 
   // Delete expense
@@ -364,6 +398,7 @@ export default function GroupWorkspace({ section }: Props) {
     });
 
     setExpenses(expenses.filter((expense) => expense.id !== expenseId));
+    expenseListFeedback.showSuccess(t('expenseDeleted'));
     fetchBalances();
   };
 
@@ -397,54 +432,73 @@ export default function GroupWorkspace({ section }: Props) {
     if (editingExpenseId === null) return;
 
     if (editDescription.trim().length === 0) {
-      alert(t('descriptionCannotBeEmpty'));
+      expenseListFeedback.showError(t('descriptionCannotBeEmpty'));
       return;
     }
 
     if (!editAmount || Number(editAmount) <= 0) {
-      alert(t('amountMustBeGreaterThanZero'));
+      expenseListFeedback.showError(t('amountMustBeGreaterThanZero'));
       return;
     }
 
     if (!editPaidBy) {
-      alert(t('pleaseSelectWhoPaid'));
+      expenseListFeedback.showError(t('pleaseSelectWhoPaid'));
       return;
     }
 
-    if (!validateSplit(editAmount, editSplitType, editSplitValues)) {
+    if (
+      !validateSplit(
+        editAmount,
+        editSplitType,
+        editSplitValues,
+        expenseListFeedback.showError
+      )
+    ) {
       return;
     }
 
-    const response = await fetch(
-      `http://127.0.0.1:8000/expenses/${editingExpenseId}`,
-      {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          description: editDescription,
-          amount: Number(editAmount),
-          paid_by: Number(editPaidBy),
-          category: editCategory,
-          split_type: editSplitType,
-          participants: buildParticipantsPayload(editSplitType, editSplitValues),
-        }),
+    setSavingExpense(true);
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:8000/expenses/${editingExpenseId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            description: editDescription,
+            amount: Number(editAmount),
+            paid_by: Number(editPaidBy),
+            category: editCategory,
+            split_type: editSplitType,
+            participants: buildParticipantsPayload(
+              editSplitType,
+              editSplitValues
+            ),
+          }),
+        }
+      );
+
+      const updatedExpense = await response.json();
+
+      if (updatedExpense.detail || updatedExpense.error) {
+        expenseListFeedback.showError(
+          updatedExpense.detail || updatedExpense.error
+        );
+        return;
       }
-    );
 
-    const updatedExpense = await response.json();
+      setEditingExpenseId(null);
+      resetEditSplitValues();
+      expenseListFeedback.showSuccess(t('expenseUpdated'));
 
-    if (updatedExpense.detail || updatedExpense.error) {
-      alert(updatedExpense.detail || updatedExpense.error);
-      return;
+      fetchExpenses();
+      fetchBalances();
+    } finally {
+      setSavingExpense(false);
     }
-
-    setEditingExpenseId(null);
-    resetEditSplitValues();
-
-    fetchExpenses();
-    fetchBalances();
   };
 
   // Delete group and return home
@@ -457,39 +511,47 @@ export default function GroupWorkspace({ section }: Props) {
   };
 
   const saveGroupSettings = async () => {
-    const response = await fetch(
-      `http://127.0.0.1:8000/groups/${groupId}/settings`,
-      {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          categories_enabled: categoriesEnabled,
-        }),
+    setSavingSettings(true);
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:8000/groups/${groupId}/settings`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            categories_enabled: categoriesEnabled,
+          }),
+        }
+      );
+
+      const updatedGroup = await response.json();
+
+      if (updatedGroup.error || updatedGroup.detail) {
+        settingsFeedback.showError(updatedGroup.error || updatedGroup.detail);
+        return;
       }
-    );
 
-    const updatedGroup = await response.json();
-
-    if (updatedGroup.error || updatedGroup.detail) {
-      alert(updatedGroup.error || updatedGroup.detail);
-      return;
+      setGroup(updatedGroup);
+      setCategoriesEnabled(updatedGroup.categories_enabled);
+      settingsFeedback.showSuccess(t('settingsSaved'));
+    } finally {
+      setSavingSettings(false);
     }
-
-    setGroup(updatedGroup);
-    setCategoriesEnabled(updatedGroup.categories_enabled);
-    setSettingsMessage(t('settingsSaved'));
   };
 
   // Settle debt
   const openSettlementModal = (balance: Balance) => {
+    settlementFeedback.clearFeedback();
     setSettlementBalance(balance);
     setSettlementMode('full');
     setPartialSettlementAmount('');
   };
 
   const closeSettlementModal = () => {
+    settlementFeedback.clearFeedback();
     setSettlementBalance(null);
     setSettlementMode('full');
     setPartialSettlementAmount('');
@@ -504,57 +566,72 @@ export default function GroupWorkspace({ section }: Props) {
         : Number(partialSettlementAmount);
 
     if (settlementAmount <= 0) {
-      alert(t('amountMustBeGreaterThanZero'));
+      settlementFeedback.showError(t('amountMustBeGreaterThanZero'));
       return;
     }
 
     if (settlementAmount > settlementBalance.amount) {
-      alert(t('partialAmountTooHigh'));
+      settlementFeedback.showError(t('partialAmountTooHigh'));
       return;
     }
 
-    const response = await fetch('http://127.0.0.1:8000/settlements', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        group_id: Number(groupId),
-        from_user: settlementBalance.from_user_id,
-        to_user: settlementBalance.to_user_id,
-        amount: settlementAmount,
-      }),
-    });
+    setRecordingSettlement(true);
 
-    const settlementData = await response.json();
+    try {
+      const response = await fetch('http://127.0.0.1:8000/settlements', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          group_id: Number(groupId),
+          from_user: settlementBalance.from_user_id,
+          to_user: settlementBalance.to_user_id,
+          amount: settlementAmount,
+        }),
+      });
 
-    if (settlementData.detail || settlementData.error) {
-      alert(settlementData.detail || settlementData.error);
-      return;
+      const settlementData = await response.json();
+
+      if (settlementData.detail || settlementData.error) {
+        settlementFeedback.showError(
+          settlementData.detail || settlementData.error
+        );
+        return;
+      }
+
+      closeSettlementModal();
+      settlementFeedback.showSuccess(t('settlementRecorded'));
+      fetchBalances();
+      fetchSettlements();
+    } finally {
+      setRecordingSettlement(false);
     }
-
-    closeSettlementModal();
-    fetchBalances();
-    fetchSettlements();
   };
 
   // Run selected confirmation action
   const handleConfirm = async () => {
     if (!confirmAction) return;
 
-    if (confirmAction.type === 'delete-member') {
-      await deleteMember(confirmAction.userId);
-    }
+    setConfirmingAction(true);
 
-    if (confirmAction.type === 'delete-expense') {
-      await deleteExpense(confirmAction.expenseId);
-    }
+    try {
+      if (confirmAction.type === 'delete-member') {
+        await deleteMember(confirmAction.userId);
+      }
 
-    if (confirmAction.type === 'delete-group') {
-      await deleteGroup();
-    }
+      if (confirmAction.type === 'delete-expense') {
+        await deleteExpense(confirmAction.expenseId);
+      }
 
-    setConfirmAction(null);
+      if (confirmAction.type === 'delete-group') {
+        await deleteGroup();
+      }
+
+      setConfirmAction(null);
+    } finally {
+      setConfirmingAction(false);
+    }
   };
 
   // Load data when page opens
@@ -764,10 +841,15 @@ export default function GroupWorkspace({ section }: Props) {
 
               <button
                 onClick={addMember}
-                className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
+                disabled={addingMember}
+                className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400"
               >
-                {t('add')}
+                {addingMember ? t('adding') : t('add')}
               </button>
+            </div>
+
+            <div className="mt-4">
+              <FeedbackMessage feedback={memberFeedback.feedback} />
             </div>
           </section>
         )}
@@ -876,16 +958,25 @@ export default function GroupWorkspace({ section }: Props) {
 
               <button
                 onClick={addExpense}
-                className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
+                disabled={addingExpense}
+                className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400"
               >
-                {t('addExpense')}
+                {addingExpense ? t('adding') : t('addExpense')}
               </button>
+
+              <div className="mt-4">
+                <FeedbackMessage feedback={expenseFormFeedback.feedback} />
+              </div>
             </section>
 
             <section className="bg-white p-6 rounded-2xl shadow">
               <h2 className="text-2xl font-semibold mb-4">
                 {t('expenses')} ({expenses.length})
               </h2>
+
+              <div className="mb-4">
+                <FeedbackMessage feedback={expenseListFeedback.feedback} />
+              </div>
 
               <div className="space-y-4">
                 {expenses.length === 0 && (
@@ -997,6 +1088,7 @@ export default function GroupWorkspace({ section }: Props) {
                           <div className="flex justify-end gap-3">
                             <button
                               onClick={cancelExpenseEdit}
+                              disabled={savingExpense}
                               className="border px-4 py-2 rounded-xl hover:bg-gray-100 text-sm"
                             >
                               {t('cancel')}
@@ -1004,9 +1096,10 @@ export default function GroupWorkspace({ section }: Props) {
 
                             <button
                               onClick={saveExpenseEdit}
-                              className="bg-black text-white px-4 py-2 rounded-xl hover:bg-gray-800 text-sm"
+                              disabled={savingExpense}
+                              className="bg-black text-white px-4 py-2 rounded-xl hover:bg-gray-800 text-sm disabled:cursor-not-allowed disabled:bg-gray-400"
                             >
-                              {t('save')}
+                              {savingExpense ? t('saving') : t('save')}
                             </button>
                           </div>
                         </div>
@@ -1072,6 +1165,7 @@ export default function GroupWorkspace({ section }: Props) {
                             <div className="flex items-center gap-3">
                               <button
                                 onClick={() => startEditingExpense(expense)}
+                                disabled={confirmingAction}
                                 className="text-blue-600 hover:underline text-sm leading-none"
                               >
                                 {t('edit')}
@@ -1085,6 +1179,7 @@ export default function GroupWorkspace({ section }: Props) {
                                     message: `${t('delete')} "${expense.description}"?`,
                                   })
                                 }
+                                disabled={confirmingAction}
                                 className="text-red-600 hover:underline text-sm leading-none"
                               >
                                 {t('delete')}
@@ -1105,6 +1200,10 @@ export default function GroupWorkspace({ section }: Props) {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <section className="bg-white p-6 rounded-2xl shadow">
               <h2 className="text-2xl font-semibold mb-4">{t('balances')}</h2>
+
+              <div className="mb-4">
+                <FeedbackMessage feedback={settlementFeedback.feedback} />
+              </div>
 
               <div className="space-y-4">
                 {balances.length === 0 && (
@@ -1132,7 +1231,8 @@ export default function GroupWorkspace({ section }: Props) {
 
                       <button
                         onClick={() => openSettlementModal(balance)}
-                        className="bg-black text-white px-5 py-2 rounded-xl text-sm hover:bg-gray-800"
+                        disabled={recordingSettlement}
+                        className="bg-black text-white px-5 py-2 rounded-xl text-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400"
                       >
                         {t('settle')}
                       </button>
@@ -1212,10 +1312,7 @@ export default function GroupWorkspace({ section }: Props) {
                 <input
                   type="checkbox"
                   checked={categoriesEnabled}
-                  onChange={(e) => {
-                    setCategoriesEnabled(e.target.checked);
-                    setSettingsMessage('');
-                  }}
+                  onChange={(e) => setCategoriesEnabled(e.target.checked)}
                 />
                 <span className="font-medium">
                   {t('enableCategories')}
@@ -1225,14 +1322,15 @@ export default function GroupWorkspace({ section }: Props) {
               <div className="flex items-center gap-4">
                 <button
                   onClick={saveGroupSettings}
-                  className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
+                  disabled={savingSettings}
+                  className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400"
                 >
-                  {t('saveSettings')}
+                  {savingSettings ? t('saving') : t('saveSettings')}
                 </button>
+              </div>
 
-                {settingsMessage && (
-                  <p className="text-sm text-green-700">{settingsMessage}</p>
-                )}
+              <div className="mt-4">
+                <FeedbackMessage feedback={settingsFeedback.feedback} />
               </div>
             </section>
 
@@ -1251,9 +1349,10 @@ export default function GroupWorkspace({ section }: Props) {
                     message: t('deleteGroupConfirmation'),
                   })
                 }
-                className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700"
+                disabled={confirmingAction}
+                className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-400"
               >
-                {t('deleteGroup')}
+                {confirmingAction ? t('deleting') : t('deleteGroup')}
               </button>
             </section>
           </div>
@@ -1270,16 +1369,18 @@ export default function GroupWorkspace({ section }: Props) {
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setConfirmAction(null)}
-                className="border px-5 py-2 rounded-xl hover:bg-gray-50"
+                disabled={confirmingAction}
+                className="border px-5 py-2 rounded-xl hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100"
               >
                 {t('cancel')}
               </button>
 
               <button
                 onClick={handleConfirm}
-                className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700"
+                disabled={confirmingAction}
+                className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-gray-400"
               >
-                {t('confirm')}
+                {confirmingAction ? t('deleting') : t('confirm')}
               </button>
             </div>
           </div>
@@ -1342,19 +1443,25 @@ export default function GroupWorkspace({ section }: Props) {
               </div>
             )}
 
+            <div className="mb-4">
+              <FeedbackMessage feedback={settlementFeedback.feedback} />
+            </div>
+
             <div className="flex justify-end gap-3">
               <button
                 onClick={closeSettlementModal}
-                className="border px-5 py-2 rounded-xl hover:bg-gray-50"
+                disabled={recordingSettlement}
+                className="border px-5 py-2 rounded-xl hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100"
               >
                 {t('cancel')}
               </button>
 
               <button
                 onClick={settleBalance}
-                className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
+                disabled={recordingSettlement}
+                className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400"
               >
-                {t('confirmSettlement')}
+                {recordingSettlement ? t('recording') : t('confirmSettlement')}
               </button>
             </div>
           </div>

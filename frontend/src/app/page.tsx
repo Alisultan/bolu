@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
+import { FeedbackMessage, useFeedback } from './components/useFeedback';
 import { useLanguage } from './i18n/LanguageProvider';
 import { LanguageSwitcher } from './i18n/LanguageSwitcher';
 
@@ -16,6 +17,10 @@ export default function Home() {
   const { t } = useLanguage();
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupName, setGroupName] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
+  const groupFormFeedback = useFeedback();
+  const groupListFeedback = useFeedback();
 
   const fetchGroups = async () => {
     const res = await fetch('http://127.0.0.1:8000/groups');
@@ -39,26 +44,33 @@ export default function Home() {
     const cleanName = groupName.trim();
 
     if (cleanName.length === 0) {
-      alert(t('groupNameCannotBeEmpty'));
+      groupFormFeedback.showError(t('groupNameCannotBeEmpty'));
       return;
     }
 
-    const response = await fetch(
-      `http://127.0.0.1:8000/groups?name=${cleanName}&created_by=1`,
-      {
-        method: 'POST',
+    setCreatingGroup(true);
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:8000/groups?name=${encodeURIComponent(cleanName)}&created_by=1`,
+        {
+          method: 'POST',
+        }
+      );
+
+      const newGroup = await response.json();
+
+      if (newGroup.error || newGroup.detail) {
+        groupFormFeedback.showError(newGroup.error || newGroup.detail);
+        return;
       }
-    );
 
-    const newGroup = await response.json();
-
-    if (newGroup.error) {
-      alert(newGroup.error);
-      return;
+      setGroups([...groups, newGroup]);
+      setGroupName('');
+      groupFormFeedback.showSuccess(t('groupCreated'));
+    } finally {
+      setCreatingGroup(false);
     }
-
-    setGroups([...groups, newGroup]);
-    setGroupName('');
   };
 
   const deleteGroup = async (groupId: number) => {
@@ -68,11 +80,18 @@ export default function Home() {
 
     if (!confirmed) return;
 
-    await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
-      method: 'DELETE',
-    });
+    setDeletingGroupId(groupId);
 
-    fetchGroups();
+    try {
+      await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
+        method: 'DELETE',
+      });
+
+      fetchGroups();
+      groupListFeedback.showSuccess(t('groupDeleted'));
+    } finally {
+      setDeletingGroupId(null);
+    }
   };
 
   return (
@@ -96,16 +115,25 @@ export default function Home() {
 
           <button
             onClick={createGroup}
-            className="mt-3 bg-black text-white px-4 py-2 rounded"
+            disabled={creatingGroup}
+            className="mt-3 bg-black text-white px-4 py-2 rounded disabled:cursor-not-allowed disabled:bg-gray-400"
           >
-            {t('createGroup')}
+            {creatingGroup ? t('creating') : t('createGroup')}
           </button>
+
+          <div className="mt-3">
+            <FeedbackMessage feedback={groupFormFeedback.feedback} />
+          </div>
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow">
           <h2 className="text-2xl font-semibold mb-4">
             {t('yourGroups')} ({groups.length})
           </h2>
+
+          <div className="mb-4">
+            <FeedbackMessage feedback={groupListFeedback.feedback} />
+          </div>
 
           <div className="space-y-3">
             {groups.map((group) => (
@@ -119,9 +147,10 @@ export default function Home() {
 
                 <button
                   onClick={() => deleteGroup(group.id)}
-                  className="text-red-600 hover:underline"
+                  disabled={deletingGroupId === group.id}
+                  className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:text-gray-400"
                 >
-                  {t('delete')}
+                  {deletingGroupId === group.id ? t('deleting') : t('delete')}
                 </button>
               </div>
             ))}
