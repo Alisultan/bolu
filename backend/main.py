@@ -157,6 +157,35 @@ def delete_member_from_group(group_id: int, user_id: int, db: Session = Depends(
     if member is None:
         return {"error": "Member not found in this group"}
 
+    # Do not allow deleting a member who paid for expenses in this group
+    paid_expense = (
+        db.query(Expense)
+        .filter(
+            Expense.group_id == group_id,
+            Expense.paid_by == user_id
+        )
+        .first()
+    )
+
+    if paid_expense:
+        return {"error": "Cannot remove member because they paid for an expense"}
+
+    # Do not allow deleting a member who participates in expenses in this group
+    group_expenses = db.query(Expense).filter(Expense.group_id == group_id).all()
+
+    for expense in group_expenses:
+        participant = (
+            db.query(ExpenseParticipant)
+            .filter(
+                ExpenseParticipant.expense_id == expense.id,
+                ExpenseParticipant.user_id == user_id
+            )
+            .first()
+        )
+
+        if participant:
+            return {"error": "Cannot remove member because they are part of an expense"}
+
     db.delete(member)
     db.commit()
 

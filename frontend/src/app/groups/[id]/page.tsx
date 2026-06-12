@@ -3,10 +3,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
-// Types for data coming from backend
 type User = {
   id: number;
   name: string;
+};
+
+type Group = {
+  id: number;
+  name: string;
+  created_by: number;
 };
 
 type Expense = {
@@ -25,40 +30,36 @@ type Balance = {
   amount: number;
 };
 
-type Group = {
-  id: number;
-  name: string;
-  created_by: number;
-};
-
 export default function GroupPage() {
-  // Get group id from URL: /groups/[id]
   const params = useParams();
   const router = useRouter();
   const groupId = params.id as string;
 
   const [group, setGroup] = useState<Group | null>(null);
-
-  // Backend data states
   const [members, setMembers] = useState<User[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
 
-  // Form input states
   const [memberName, setMemberName] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [paidBy, setPaidBy] = useState('');
 
-  // Load members of this group
+  // Load current group info
+  const fetchGroup = async () => {
+    const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}`);
+    const data = await res.json();
+    setGroup(data);
+  };
+
+  // Load group members
   const fetchMembers = async () => {
     const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}/members`);
     const data = await res.json();
-
     setMembers(data);
   };
 
-  // Load all expenses, then keep only expenses for this group
+  // Load expenses for this group
   const fetchExpenses = async () => {
     const res = await fetch('http://127.0.0.1:8000/expenses');
     const data = await res.json();
@@ -68,58 +69,66 @@ export default function GroupPage() {
     );
   };
 
-  // Load calculated balances for this group
+  // Load calculated balances
   const fetchBalances = async () => {
     const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}/balances`);
     const data = await res.json();
-
     setBalances(data);
   };
 
-  // Add a new member to the current group
+  // Add member to group
   const addMember = async () => {
-    if (memberName.trim().length === 0) {
+    const cleanName = memberName.trim();
+
+    if (cleanName.length === 0) {
       alert('Member name cannot be empty');
       return;
     }
 
     const userRes = await fetch(
-      `http://127.0.0.1:8000/users?name=${memberName}`,
+      `http://127.0.0.1:8000/users?name=${cleanName}`,
       { method: 'POST' }
     );
 
     const newUser = await userRes.json();
 
-    await fetch(
+    const memberRes = await fetch(
       `http://127.0.0.1:8000/groups/${groupId}/members/${newUser.id}`,
       { method: 'POST' }
     );
+
+    const memberData = await memberRes.json();
+
+    if (memberData.error) {
+      alert(memberData.error);
+      return;
+    }
 
     setMemberName('');
     fetchMembers();
     fetchBalances();
   };
 
-  // Remove a member from the current group
+  // Delete member only if they are not connected to expenses
   const deleteMember = async (userId: number) => {
-    await fetch(`http://127.0.0.1:8000/groups/${groupId}/members/${userId}`, {
-      method: 'DELETE',
-    });
+    const res = await fetch(
+      `http://127.0.0.1:8000/groups/${groupId}/members/${userId}`,
+      { method: 'DELETE' }
+    );
+
+    const data = await res.json();
+
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
 
     fetchMembers();
     fetchExpenses();
     fetchBalances();
   };
 
-  const deleteGroup = async () => {
-    await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
-        method: 'DELETE',
-    });
-
-    router.push('/');
-  };
-
-  // Add a new expense to the current group
+  // Add new expense
   const addExpense = async () => {
     if (description.trim().length === 0) {
       alert('Description cannot be empty');
@@ -161,11 +170,10 @@ export default function GroupPage() {
     setDescription('');
     setAmount('');
     setPaidBy('');
-
     fetchBalances();
   };
 
-  // Delete an expense from the current group
+  // Delete expense
   const deleteExpense = async (expenseId: number) => {
     await fetch(`http://127.0.0.1:8000/expenses/${expenseId}`, {
       method: 'DELETE',
@@ -175,15 +183,40 @@ export default function GroupPage() {
     fetchBalances();
   };
 
+  // Delete whole group
+  const deleteGroup = async () => {
+    await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
+      method: 'DELETE',
+    });
 
-  const fetchGroup = async () => {
-    const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}`);
-    const data = await res.json();
+    router.push('/');
+  };
 
-    setGroup(data);
-};
+  // Settle balance between two users
+  const settleBalance = async (balance: Balance) => {
+    const confirmed = confirm(
+      `Settle ${balance.amount.toLocaleString()} ₸ from ${balance.from_user_name} to ${balance.to_user_name}?`
+    );
 
-  // Load group data when page opens or groupId changes
+    if (!confirmed) return;
+
+    await fetch('http://127.0.0.1:8000/settlements', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        group_id: Number(groupId),
+        from_user: balance.from_user_id,
+        to_user: balance.to_user_id,
+        amount: balance.amount,
+      }),
+    });
+
+    fetchBalances();
+  };
+
+  // Load data when page opens
   useEffect(() => {
     fetchGroup();
     fetchMembers();
@@ -194,32 +227,39 @@ export default function GroupPage() {
   return (
     <main className="min-h-screen bg-gray-100 p-10">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold mb-6">
+        {/* Header */}
+        <div className="mb-6">
+        <h1 className="text-4xl font-bold">
             {group ? group.name : `Group #${groupId}`}
         </h1>
 
         <button
-        onClick={() => {
-            const confirmed = confirm(
-            'Are you sure you want to delete this group? This action cannot be undone.'
-            );
+            onClick={() => {
+              const confirmed = confirm(
+                'Are you sure you want to delete this group? This action cannot be undone.'
+              );
 
-            if (!confirmed) return;
+              if (!confirmed) return;
 
-            deleteGroup();
-        }}
-        className="text-red-600 hover:underline mb-6"
-        >
-        Delete Group
-        </button>
+              deleteGroup();
+            }}
+            className="text-red-600 hover:underline"
+          >
+            Delete Group
+          </button>
+        </div>
 
-        {/* Members section */}
+        {/* Members */}
         <div className="bg-white p-6 rounded-xl shadow mb-6">
           <h2 className="text-2xl font-semibold mb-4">
             Members ({members.length})
           </h2>
 
           <div className="space-y-2 mb-4">
+            {members.length === 0 && (
+              <p className="text-gray-500">No members yet.</p>
+            )}
+
             {members.map((member) => (
               <div
                 key={member.id}
@@ -230,7 +270,7 @@ export default function GroupPage() {
                 <button
                   onClick={() => {
                     const confirmed = confirm(
-                      'Are you sure you want to remove this member from the group?'
+                      'Are you sure you want to remove this member?'
                     );
 
                     if (!confirmed) return;
@@ -262,7 +302,7 @@ export default function GroupPage() {
           </div>
         </div>
 
-        {/* Add expense section */}
+        {/* Add Expense */}
         <div className="bg-white p-6 rounded-xl shadow mb-6">
           <h2 className="text-2xl font-semibold mb-4">Add Expense</h2>
 
@@ -303,13 +343,13 @@ export default function GroupPage() {
           </button>
         </div>
 
-        {/* Expenses section */}
+        {/* Expenses */}
         <div className="bg-white p-6 rounded-xl shadow mb-6">
           <h2 className="text-2xl font-semibold mb-4">
             Expenses ({expenses.length})
           </h2>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {expenses.length === 0 && (
               <p className="text-gray-500">No expenses yet.</p>
             )}
@@ -318,37 +358,48 @@ export default function GroupPage() {
               const payer = members.find((m) => m.id === expense.paid_by);
 
               return (
-                <div
-                  key={expense.id}
-                  className="border rounded p-3 flex justify-between items-center"
-                >
-                  <div>
-                    {expense.description} —{' '}
-                    {expense.amount.toLocaleString()} ₸ paid by{' '}
-                    {payer ? payer.name : `User #${expense.paid_by}`}
+                <div key={expense.id} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start gap-4">
+                    <div>
+                      <h3 className="font-semibold text-lg">
+                        {expense.description}
+                      </h3>
+
+                      <p className="text-sm text-gray-600">
+                        Paid by: {payer ? payer.name : `User #${expense.paid_by}`}
+                      </p>
+
+                      <p className="text-sm text-gray-600">
+                        Amount: {expense.amount.toLocaleString()} ₸
+                      </p>
+
+                      <p className="text-sm text-gray-600">
+                        Participants: {members.length}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const confirmed = confirm(
+                          'Are you sure you want to delete this expense?'
+                        );
+
+                        if (!confirmed) return;
+
+                        deleteExpense(expense.id);
+                      }}
+                      className="text-red-600 hover:underline"
+                    >
+                      Delete
+                    </button>
                   </div>
-
-                  <button
-                    onClick={() => {
-                      const confirmed = confirm(
-                        'Are you sure you want to delete this expense?'
-                      );
-
-                      if (!confirmed) return;
-
-                      deleteExpense(expense.id);
-                    }}
-                    className="text-red-600 hover:underline"
-                  >
-                    Delete
-                  </button>
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Balances section */}
+        {/* Balances */}
         <div className="bg-white p-6 rounded-xl shadow">
           <h2 className="text-2xl font-semibold mb-4">Balances</h2>
 
@@ -358,13 +409,43 @@ export default function GroupPage() {
             )}
 
             {balances.map((balance, index) => (
-              <div key={index} className="border rounded p-3">
-                {balance.from_user_name} owes {balance.to_user_name}{' '}
-                {balance.amount.toLocaleString()} ₸
+              <div
+                key={index}
+                className="border rounded p-3 flex justify-between items-center"
+              >
+                <span>
+                  {balance.from_user_name} owes {balance.to_user_name}{' '}
+                  {balance.amount.toLocaleString()} ₸
+                </span>
+
+                <button
+                  onClick={() => settleBalance(balance)}
+                  className="bg-black text-white px-3 py-1 rounded text-sm"
+                >
+                  Settle
+                </button>
               </div>
             ))}
           </div>
         </div>
+
+        <div className="mt-6 flex justify-center">
+        <button
+            onClick={() => {
+            const confirmed = confirm(
+                'Are you sure you want to delete this group? This action cannot be undone.'
+            );
+
+            if (!confirmed) return;
+
+            deleteGroup();
+            }}
+            className="text-red-600 hover:underline"
+        >
+            Delete Group
+        </button>
+        </div>
+
       </div>
     </main>
   );
