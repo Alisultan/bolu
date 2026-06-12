@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Float
+from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Float
 from backend.database import Base
 
 class User(Base):
@@ -14,6 +14,7 @@ class Group(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"))
+    categories_enabled = Column(Boolean, nullable=False, default=False)
 
 
 class GroupMember(Base):
@@ -32,6 +33,7 @@ class Expense(Base):
     amount = Column(Float, nullable=False)
     description = Column(String, nullable=False)
     split_type = Column(String, nullable=False, default="equal")
+    category = Column(String, nullable=False, default="Other")
 
 
 class ExpenseParticipant(Base):

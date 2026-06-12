@@ -12,6 +12,7 @@ type Group = {
   id: number;
   name: string;
   created_by: number;
+  categories_enabled: boolean;
 };
 
 type SplitType = 'equal' | 'percentage' | 'exact';
@@ -28,6 +29,7 @@ type Expense = {
   paid_by: number;
   amount: number;
   description: string;
+  category: string;
   split_type: SplitType;
   participants: ExpenseParticipant[];
 };
@@ -67,6 +69,15 @@ type Props = {
   section: GroupSection;
 };
 
+const expenseCategories = [
+  'Food',
+  'Transport',
+  'Rent',
+  'Entertainment',
+  'Shopping',
+  'Other',
+];
+
 export default function GroupWorkspace({ section }: Props) {
   const params = useParams();
   const router = useRouter();
@@ -82,6 +93,7 @@ export default function GroupWorkspace({ section }: Props) {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [paidBy, setPaidBy] = useState('');
+  const [category, setCategory] = useState('Other');
   const [splitType, setSplitType] = useState<SplitType>('equal');
   const [splitValues, setSplitValues] = useState<Record<number, string>>({});
   // Expense editing
@@ -89,6 +101,7 @@ export default function GroupWorkspace({ section }: Props) {
   const [editDescription, setEditDescription] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editPaidBy, setEditPaidBy] = useState('');
+  const [editCategory, setEditCategory] = useState('Other');
   const [editSplitType, setEditSplitType] = useState<SplitType>('equal');
   const [editSplitValues, setEditSplitValues] = useState<
     Record<number, string>
@@ -103,6 +116,8 @@ export default function GroupWorkspace({ section }: Props) {
   const [settlementMode, setSettlementMode] =
     useState<SettlementMode>('full');
   const [partialSettlementAmount, setPartialSettlementAmount] = useState('');
+  const [categoriesEnabled, setCategoriesEnabled] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState('');
 
   const splitTypeLabels: Record<SplitType, string> = {
     equal: 'Equal',
@@ -309,6 +324,7 @@ export default function GroupWorkspace({ section }: Props) {
         paid_by: Number(paidBy),
         amount: Number(amount),
         description,
+        category,
         split_type: splitType,
         participants: buildParticipantsPayload(splitType, splitValues),
       }),
@@ -325,6 +341,7 @@ export default function GroupWorkspace({ section }: Props) {
     setDescription('');
     setAmount('');
     setPaidBy('');
+    setCategory('Other');
     setSplitType('equal');
     resetSplitValues();
     fetchBalances();
@@ -345,6 +362,7 @@ export default function GroupWorkspace({ section }: Props) {
     setEditDescription(expense.description);
     setEditAmount(expense.amount.toString());
     setEditPaidBy(expense.paid_by.toString());
+    setEditCategory(expense.category || 'Other');
     setEditSplitType(expense.split_type || 'equal');
     setEditSplitValues(
       expense.participants.reduce<Record<number, string>>(
@@ -398,6 +416,7 @@ export default function GroupWorkspace({ section }: Props) {
           description: editDescription,
           amount: Number(editAmount),
           paid_by: Number(editPaidBy),
+          category: editCategory,
           split_type: editSplitType,
           participants: buildParticipantsPayload(editSplitType, editSplitValues),
         }),
@@ -425,6 +444,32 @@ export default function GroupWorkspace({ section }: Props) {
     });
 
     router.push('/');
+  };
+
+  const saveGroupSettings = async () => {
+    const response = await fetch(
+      `http://127.0.0.1:8000/groups/${groupId}/settings`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          categories_enabled: categoriesEnabled,
+        }),
+      }
+    );
+
+    const updatedGroup = await response.json();
+
+    if (updatedGroup.error || updatedGroup.detail) {
+      alert(updatedGroup.error || updatedGroup.detail);
+      return;
+    }
+
+    setGroup(updatedGroup);
+    setCategoriesEnabled(updatedGroup.categories_enabled);
+    setSettingsMessage('Settings saved');
   };
 
   // Settle debt
@@ -529,6 +574,7 @@ export default function GroupWorkspace({ section }: Props) {
       ]);
 
       setGroup(groupData);
+      setCategoriesEnabled(Boolean(groupData.categories_enabled));
       setMembers(membersData);
       setExpenses(
         expensesData.filter(
@@ -748,6 +794,25 @@ export default function GroupWorkspace({ section }: Props) {
                 ))}
               </select>
 
+              {group?.categories_enabled && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium mb-2">
+                    Category
+                  </label>
+                  <select
+                    className="border p-3 rounded-xl w-full"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                  >
+                    {expenseCategories.map((expenseCategory) => (
+                      <option key={expenseCategory} value={expenseCategory}>
+                        {expenseCategory}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="mb-3">
                 <label className="block text-sm font-medium mb-2">
                   Split type
@@ -852,6 +917,23 @@ export default function GroupWorkspace({ section }: Props) {
                             ))}
                           </select>
 
+                          {group?.categories_enabled && (
+                            <select
+                              className="border p-3 rounded-xl w-full bg-white"
+                              value={editCategory}
+                              onChange={(e) => setEditCategory(e.target.value)}
+                            >
+                              {expenseCategories.map((expenseCategory) => (
+                                <option
+                                  key={expenseCategory}
+                                  value={expenseCategory}
+                                >
+                                  {expenseCategory}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+
                           <select
                             className="border p-3 rounded-xl w-full bg-white"
                             value={editSplitType}
@@ -930,8 +1012,17 @@ export default function GroupWorkspace({ section }: Props) {
                                   {payer
                                     ? payer.name
                                     : `User #${expense.paid_by}`}
-                                </span>
+                                  </span>
                               </p>
+
+                              {group?.categories_enabled && (
+                                <p>
+                                  Category:{' '}
+                                  <span className="font-medium text-black">
+                                    {expense.category || 'Other'}
+                                  </span>
+                                </p>
+                              )}
                             </div>
 
                             <div className="mt-4">
@@ -1088,24 +1179,62 @@ export default function GroupWorkspace({ section }: Props) {
         )}
 
         {section === 'settings' && (
-          <section className="bg-white p-6 rounded-2xl shadow">
-            <h2 className="text-2xl font-semibold mb-2">Group Settings</h2>
-            <p className="text-gray-600 mb-6">
-              Manage actions that affect the whole group.
-            </p>
+          <div className="space-y-6">
+            <section className="bg-white p-6 rounded-2xl shadow">
+              <h2 className="text-2xl font-semibold mb-2">
+                Expense categories
+              </h2>
+              <p className="text-gray-600 mb-5">
+                Enable categories for this group.
+              </p>
 
-            <button
-              onClick={() =>
-                setConfirmAction({
-                  type: 'delete-group',
-                  message: 'Delete this group? This action cannot be undone.',
-                })
-              }
-              className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700"
-            >
-              Delete Group
-            </button>
-          </section>
+              <label className="flex items-center gap-3 mb-5">
+                <input
+                  type="checkbox"
+                  checked={categoriesEnabled}
+                  onChange={(e) => {
+                    setCategoriesEnabled(e.target.checked);
+                    setSettingsMessage('');
+                  }}
+                />
+                <span className="font-medium">
+                  Enable categories for this group
+                </span>
+              </label>
+
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={saveGroupSettings}
+                  className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
+                >
+                  Save settings
+                </button>
+
+                {settingsMessage && (
+                  <p className="text-sm text-green-700">{settingsMessage}</p>
+                )}
+              </div>
+            </section>
+
+            <section className="bg-white p-6 rounded-2xl shadow">
+              <h2 className="text-2xl font-semibold mb-2">Group Settings</h2>
+              <p className="text-gray-600 mb-6">
+                Manage actions that affect the whole group.
+              </p>
+
+              <button
+                onClick={() =>
+                  setConfirmAction({
+                    type: 'delete-group',
+                    message: 'Delete this group? This action cannot be undone.',
+                  })
+                }
+                className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700"
+              >
+                Delete Group
+              </button>
+            </section>
+          </div>
         )}
 
       {/* Confirmation modal */}

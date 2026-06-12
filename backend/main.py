@@ -31,6 +31,18 @@ def ensure_runtime_columns():
         )
         connection.execute(
             text(
+                "ALTER TABLE expenses "
+                "ADD COLUMN IF NOT EXISTS category VARCHAR NOT NULL DEFAULT 'Other'"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE groups "
+                "ADD COLUMN IF NOT EXISTS categories_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
+        connection.execute(
+            text(
                 "ALTER TABLE expense_participants "
                 "ADD COLUMN IF NOT EXISTS share_amount DOUBLE PRECISION NOT NULL DEFAULT 0"
             )
@@ -69,6 +81,7 @@ class ExpenseCreate(BaseModel):
     paid_by: int
     amount: float
     description: str
+    category: str = "Other"
     split_type: Literal["equal", "percentage", "exact"] = "equal"
     participants: list[Union[int, ExpenseParticipantInput]]
 
@@ -76,8 +89,13 @@ class ExpenseUpdate(BaseModel):
     paid_by: int
     amount: float
     description: str
+    category: str = "Other"
     split_type: Literal["equal", "percentage", "exact"] = "equal"
     participants: list[Union[int, ExpenseParticipantInput]]
+
+class GroupSettingsUpdate(BaseModel):
+    name: Optional[str] = None
+    categories_enabled: Optional[bool] = None
 
 class SettlementCreate(BaseModel):
     group_id: int
@@ -200,6 +218,7 @@ def serialize_expense(expense: Expense, db: Session):
         "paid_by": expense.paid_by,
         "amount": expense.amount,
         "description": expense.description,
+        "category": expense.category or "Other",
         "split_type": expense.split_type,
         "participants": [
             {
@@ -287,7 +306,7 @@ def create_group(name: str, created_by: int, db: Session = Depends(get_db)):
     if existing_group:
         return {"error": "You already have a group with this name"}
 
-    group = Group(name=clean_name, created_by=created_by)
+    group = Group(name=clean_name, created_by=created_by, categories_enabled=False)
     db.add(group)
     db.commit()
     db.refresh(group)
@@ -305,6 +324,33 @@ def get_group(group_id: int, db: Session = Depends(get_db)):
 
     if group is None:
         return {"error": "Group not found"}
+
+    return group
+
+@app.put("/groups/{group_id}/settings")
+def update_group_settings(
+    group_id: int,
+    settings: GroupSettingsUpdate,
+    db: Session = Depends(get_db)
+):
+    group = db.query(Group).filter(Group.id == group_id).first()
+
+    if group is None:
+        return {"error": "Group not found"}
+
+    if settings.name is not None:
+        clean_name = settings.name.strip()
+
+        if len(clean_name) == 0:
+            return {"error": "Group name cannot be empty"}
+
+        group.name = clean_name
+
+    if settings.categories_enabled is not None:
+        group.categories_enabled = settings.categories_enabled
+
+    db.commit()
+    db.refresh(group)
 
     return group
 
@@ -427,6 +473,7 @@ def create_expense(expense: ExpenseCreate, db: Session = Depends(get_db)):
         paid_by=expense.paid_by,
         amount=expense.amount,
         description=expense.description.strip(),
+        category=expense.category.strip() or "Other",
         split_type=expense.split_type
     )
 
@@ -470,6 +517,7 @@ def update_expense(
     expense.description = expense_update.description
     expense.amount = expense_update.amount
     expense.paid_by = expense_update.paid_by
+    expense.category = expense_update.category.strip() or "Other"
     expense.split_type = expense_update.split_type
 
     db.query(ExpenseParticipant).filter(
