@@ -43,8 +43,9 @@ type Balance = {
 type ConfirmAction =
   | { type: 'delete-member'; userId: number; message: string }
   | { type: 'delete-expense'; expenseId: number; message: string }
-  | { type: 'delete-group'; message: string }
-  | { type: 'settle'; balance: Balance; message: string };
+  | { type: 'delete-group'; message: string };
+
+type SettlementMode = 'full' | 'partial';
 
 export default function GroupPage() {
   const params = useParams();
@@ -75,6 +76,12 @@ export default function GroupPage() {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
     null
   );
+  const [settlementBalance, setSettlementBalance] = useState<Balance | null>(
+    null
+  );
+  const [settlementMode, setSettlementMode] =
+    useState<SettlementMode>('full');
+  const [partialSettlementAmount, setPartialSettlementAmount] = useState('');
 
   const splitTypeLabels: Record<SplitType, string> = {
     equal: 'Equal',
@@ -379,20 +386,57 @@ export default function GroupPage() {
   };
 
   // Settle debt
-  const settleBalance = async (balance: Balance) => {
-    await fetch('http://127.0.0.1:8000/settlements', {
+  const openSettlementModal = (balance: Balance) => {
+    setSettlementBalance(balance);
+    setSettlementMode('full');
+    setPartialSettlementAmount('');
+  };
+
+  const closeSettlementModal = () => {
+    setSettlementBalance(null);
+    setSettlementMode('full');
+    setPartialSettlementAmount('');
+  };
+
+  const settleBalance = async () => {
+    if (!settlementBalance) return;
+
+    const settlementAmount =
+      settlementMode === 'full'
+        ? settlementBalance.amount
+        : Number(partialSettlementAmount);
+
+    if (settlementAmount <= 0) {
+      alert('Amount to settle must be greater than 0');
+      return;
+    }
+
+    if (settlementAmount > settlementBalance.amount) {
+      alert('Partial amount cannot be greater than the total balance');
+      return;
+    }
+
+    const response = await fetch('http://127.0.0.1:8000/settlements', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         group_id: Number(groupId),
-        from_user: balance.from_user_id,
-        to_user: balance.to_user_id,
-        amount: balance.amount,
+        from_user: settlementBalance.from_user_id,
+        to_user: settlementBalance.to_user_id,
+        amount: settlementAmount,
       }),
     });
 
+    const settlementData = await response.json();
+
+    if (settlementData.detail || settlementData.error) {
+      alert(settlementData.detail || settlementData.error);
+      return;
+    }
+
+    closeSettlementModal();
     fetchBalances();
   };
 
@@ -410,10 +454,6 @@ export default function GroupPage() {
 
     if (confirmAction.type === 'delete-group') {
       await deleteGroup();
-    }
-
-    if (confirmAction.type === 'settle') {
-      await settleBalance(confirmAction.balance);
     }
 
     setConfirmAction(null);
@@ -808,13 +848,7 @@ export default function GroupPage() {
                     </div>
 
                     <button
-                      onClick={() =>
-                        setConfirmAction({
-                          type: 'settle',
-                          balance,
-                          message: `Settle ${balance.amount.toLocaleString()} ₸ from ${balance.from_user_name} to ${balance.to_user_name}?`,
-                        })
-                      }
+                      onClick={() => openSettlementModal(balance)}
                       className="bg-black text-white px-5 py-2 rounded-xl text-sm hover:bg-gray-800"
                     >
                       Settle
@@ -863,6 +897,81 @@ export default function GroupPage() {
                 className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700"
               >
                 Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {settlementBalance && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
+            <h2 className="text-xl font-semibold mb-2">Settle balance</h2>
+
+            <p className="text-gray-600 mb-1">
+              {settlementBalance.from_user_name} owes{' '}
+              {settlementBalance.to_user_name}
+            </p>
+
+            <p className="text-2xl font-bold mb-6">
+              {formatMoney(settlementBalance.amount)} ₸
+            </p>
+
+            <div className="space-y-3 mb-5">
+              <label className="flex items-center gap-3 border rounded-xl p-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="settlementMode"
+                  value="full"
+                  checked={settlementMode === 'full'}
+                  onChange={() => setSettlementMode('full')}
+                />
+                <span className="font-medium">Full amount</span>
+              </label>
+
+              <label className="flex items-center gap-3 border rounded-xl p-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="settlementMode"
+                  value="partial"
+                  checked={settlementMode === 'partial'}
+                  onChange={() => setSettlementMode('partial')}
+                />
+                <span className="font-medium">Partial amount</span>
+              </label>
+            </div>
+
+            {settlementMode === 'partial' && (
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-2">
+                  Amount to settle
+                </label>
+
+                <input
+                  className="border p-3 rounded-xl w-full"
+                  type="number"
+                  min="0"
+                  max={settlementBalance.amount}
+                  placeholder="Amount to settle"
+                  value={partialSettlementAmount}
+                  onChange={(e) => setPartialSettlementAmount(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={closeSettlementModal}
+                className="border px-5 py-2 rounded-xl hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={settleBalance}
+                className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
+              >
+                Confirm settlement
               </button>
             </div>
           </div>

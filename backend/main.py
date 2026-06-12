@@ -212,6 +212,45 @@ def serialize_expense(expense: Expense, db: Session):
     }
 
 
+def calculate_group_balances(group_id: int, db: Session):
+    group_expenses = db.query(Expense).filter(Expense.group_id == group_id).all()
+
+    balances = {}
+
+    for expense in group_expenses:
+        participants = (
+            db.query(ExpenseParticipant)
+            .filter(ExpenseParticipant.expense_id == expense.id)
+            .all()
+        )
+
+        if len(participants) == 0:
+            continue
+
+        for participant in participants:
+            if participant.user_id != expense.paid_by:
+                key = (participant.user_id, expense.paid_by)
+                balances[key] = balances.get(key, 0) + participant.share_amount
+
+    group_settlements = db.query(Settlement).filter(Settlement.group_id == group_id).all()
+
+    for settlement in group_settlements:
+        key = (settlement.from_user, settlement.to_user)
+        balances[key] = balances.get(key, 0) - settlement.amount
+
+    simplified_balances = {}
+
+    for (from_user, to_user), amount in balances.items():
+        reverse_key = (to_user, from_user)
+
+        if reverse_key in simplified_balances:
+            simplified_balances[reverse_key] -= amount
+        else:
+            simplified_balances[(from_user, to_user)] = amount
+
+    return simplified_balances
+
+
 @app.get("/")
 def home():
     return {"message": "Welcome to Bolu API"}
@@ -473,42 +512,7 @@ def delete_expense(expense_id: int, db: Session = Depends(get_db)):
 
 @app.get("/groups/{group_id}/balances")
 def get_group_balances(group_id: int, db: Session = Depends(get_db)):
-    group_expenses = db.query(Expense).filter(Expense.group_id == group_id).all()
-
-    balances = {}
-
-    for expense in group_expenses:
-        participants = (
-            db.query(ExpenseParticipant)
-            .filter(ExpenseParticipant.expense_id == expense.id)
-            .all()
-        )
-
-        if len(participants) == 0:
-            continue
-
-        for participant in participants:
-            if participant.user_id != expense.paid_by:
-                key = (participant.user_id, expense.paid_by)
-                balances[key] = balances.get(key, 0) + participant.share_amount
-
-    group_settlements = db.query(Settlement).filter(Settlement.group_id == group_id).all()
-
-    for settlement in group_settlements:
-        key = (settlement.from_user, settlement.to_user)
-        balances[key] = balances.get(key, 0) - settlement.amount
-
-    simplified_balances = {}
-
-    for (from_user, to_user), amount in balances.items():
-        reverse_key = (to_user, from_user)
-
-        if reverse_key in simplified_balances:
-            simplified_balances[reverse_key] -= amount
-        else:
-            simplified_balances[(from_user, to_user)] = amount
-
-    balances = simplified_balances
+    balances = calculate_group_balances(group_id, db)
 
     result = []
 
@@ -532,6 +536,30 @@ def get_group_balances(group_id: int, db: Session = Depends(get_db)):
 
 @app.post("/settlements")
 def create_settlement(settlement: SettlementCreate, db: Session = Depends(get_db)):
+    if settlement.amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Settlement amount must be greater than 0"
+        )
+
+    balances = calculate_group_balances(settlement.group_id, db)
+    outstanding_amount = round(
+        balances.get((settlement.from_user, settlement.to_user), 0),
+        2
+    )
+
+    if outstanding_amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No outstanding balance exists between these users"
+        )
+
+    if round(settlement.amount, 2) > outstanding_amount:
+        raise HTTPException(
+            status_code=400,
+            detail="Settlement amount cannot be greater than the outstanding balance"
+        )
+
     new_settlement = Settlement(
         group_id=settlement.group_id,
         from_user=settlement.from_user,
