@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { FeedbackMessage, useFeedback } from './components/useFeedback';
 import { useLanguage } from './i18n/LanguageProvider';
 import { LanguageSwitcher } from './i18n/LanguageSwitcher';
+import { apiUrl } from './lib/api';
 
 type Group = {
   id: number;
@@ -21,24 +22,33 @@ export default function Home() {
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
   const groupFormFeedback = useFeedback();
   const groupListFeedback = useFeedback();
+  const showGroupListError = groupListFeedback.showError;
 
   const fetchGroups = async () => {
-    const res = await fetch('http://127.0.0.1:8000/groups');
-    const data = await res.json();
+    try {
+      const res = await fetch(apiUrl('/groups'));
+      const data = await res.json();
 
-    setGroups(data);
+      setGroups(data);
+    } catch {
+      groupListFeedback.showError(t('apiRequestFailed'));
+    }
   };
 
   useEffect(() => {
     const loadGroups = async () => {
-      const res = await fetch('http://127.0.0.1:8000/groups');
-      const data = await res.json();
+      try {
+        const res = await fetch(apiUrl('/groups'));
+        const data = await res.json();
 
-      setGroups(data);
+        setGroups(data);
+      } catch {
+        showGroupListError(t('apiRequestFailed'));
+      }
     };
 
     loadGroups();
-  }, []);
+  }, [showGroupListError, t]);
 
   const createGroup = async () => {
     const cleanName = groupName.trim();
@@ -52,7 +62,7 @@ export default function Home() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/groups?name=${encodeURIComponent(cleanName)}&created_by=1`,
+        apiUrl(`/groups?name=${encodeURIComponent(cleanName)}&created_by=1`),
         {
           method: 'POST',
         }
@@ -68,6 +78,8 @@ export default function Home() {
       setGroups([...groups, newGroup]);
       setGroupName('');
       groupFormFeedback.showSuccess(t('groupCreated'));
+    } catch {
+      groupFormFeedback.showError(t('apiRequestFailed'));
     } finally {
       setCreatingGroup(false);
     }
@@ -83,19 +95,21 @@ export default function Home() {
     setDeletingGroupId(groupId);
 
     try {
-      await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
+      await fetch(apiUrl(`/groups/${groupId}`), {
         method: 'DELETE',
       });
 
       fetchGroups();
       groupListFeedback.showSuccess(t('groupDeleted'));
+    } catch {
+      groupListFeedback.showError(t('apiRequestFailed'));
     } finally {
       setDeletingGroupId(null);
     }
   };
 
   return (
-    <main className="min-h-screen bg-gray-100 p-10">
+    <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
           <LanguageSwitcher />
@@ -136,6 +150,12 @@ export default function Home() {
           </div>
 
           <div className="space-y-3">
+            {groups.length === 0 && (
+              <p className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                {t('noGroupsYet')}
+              </p>
+            )}
+
             {groups.map((group) => (
               <div
                 key={group.id}

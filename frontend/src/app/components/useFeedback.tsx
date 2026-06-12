@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type Feedback = {
   type: 'success' | 'error';
@@ -34,7 +34,7 @@ export function useFeedback(duration = 2500) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const removeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const clearTimers = () => {
+  const clearTimers = useCallback(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
@@ -44,15 +44,15 @@ export function useFeedback(duration = 2500) {
       clearTimeout(removeTimeoutRef.current);
       removeTimeoutRef.current = null;
     }
-  };
+  }, []);
 
-  const clearFeedback = () => {
+  const clearFeedback = useCallback(() => {
     clearTimers();
 
     setFeedback(null);
-  };
+  }, [clearTimers]);
 
-  const showFeedback = (type: 'success' | 'error', message: string) => {
+  const showFeedback = useCallback((type: 'success' | 'error', message: string) => {
     clearTimers();
 
     setFeedback({ type, message, visible: false });
@@ -71,19 +71,31 @@ export function useFeedback(duration = 2500) {
         removeTimeoutRef.current = null;
       }, 300);
     }, duration);
-  };
+  }, [clearTimers, duration]);
 
   useEffect(
     () => () => {
       clearTimers();
     },
-    []
+    [clearTimers]
   );
 
-  return {
-    feedback,
-    clearFeedback,
-    showError: (message: string) => showFeedback('error', message),
-    showSuccess: (message: string) => showFeedback('success', message),
-  };
+  const showError = useCallback(
+    (message: string) => showFeedback('error', message),
+    [showFeedback]
+  );
+  const showSuccess = useCallback(
+    (message: string) => showFeedback('success', message),
+    [showFeedback]
+  );
+
+  return useMemo(
+    () => ({
+      feedback,
+      clearFeedback,
+      showError,
+      showSuccess,
+    }),
+    [clearFeedback, feedback, showError, showSuccess]
+  );
 }

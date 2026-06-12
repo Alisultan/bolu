@@ -1,3 +1,4 @@
+import os
 from typing import Literal, Optional, Union
 
 from fastapi import FastAPI, Depends, HTTPException
@@ -11,9 +12,15 @@ from backend.models import User, Group, GroupMember, Expense, ExpenseParticipant
 
 app = FastAPI(title="Bolu API")
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

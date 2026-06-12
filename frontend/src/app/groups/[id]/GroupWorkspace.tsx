@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { FeedbackMessage, useFeedback } from '../../components/useFeedback';
 import { useLanguage } from '../../i18n/LanguageProvider';
 import type { TranslationKey } from '../../i18n/translations';
+import { apiUrl } from '../../lib/api';
 
 type User = {
   id: number;
@@ -133,6 +134,8 @@ export default function GroupWorkspace({ section }: Props) {
   const expenseListFeedback = useFeedback();
   const settlementFeedback = useFeedback();
   const settingsFeedback = useFeedback();
+  const pageFeedback = useFeedback();
+  const showPageError = pageFeedback.showError;
 
   const splitTypeLabels: Record<SplitType, string> = {
     equal: t('equal'),
@@ -227,14 +230,14 @@ export default function GroupWorkspace({ section }: Props) {
 
   // Fetch members of current group
   const fetchMembers = async () => {
-    const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}/members`);
+    const res = await fetch(apiUrl(`/groups/${groupId}/members`));
     const data = await res.json();
     setMembers(data);
   };
 
   // Fetch expenses and filter by current group
   const fetchExpenses = async () => {
-    const res = await fetch('http://127.0.0.1:8000/expenses');
+    const res = await fetch(apiUrl('/expenses'));
     const data = await res.json();
 
     setExpenses(
@@ -244,7 +247,7 @@ export default function GroupWorkspace({ section }: Props) {
 
   // Fetch balances from backend
   const fetchBalances = async () => {
-    const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}/balances`);
+    const res = await fetch(apiUrl(`/groups/${groupId}/balances`));
     const data = await res.json();
     setBalances(data);
   };
@@ -252,7 +255,7 @@ export default function GroupWorkspace({ section }: Props) {
   // Fetch settlement history for current group
   const fetchSettlements = async () => {
     const res = await fetch(
-      `http://127.0.0.1:8000/groups/${groupId}/settlements`
+      apiUrl(`/groups/${groupId}/settlements`)
     );
     const data = await res.json();
     setSettlements(data);
@@ -271,14 +274,14 @@ export default function GroupWorkspace({ section }: Props) {
 
     try {
       const userRes = await fetch(
-        `http://127.0.0.1:8000/users?name=${encodeURIComponent(cleanName)}`,
+        apiUrl(`/users?name=${encodeURIComponent(cleanName)}`),
         { method: 'POST' }
       );
 
       const newUser = await userRes.json();
 
       const memberRes = await fetch(
-        `http://127.0.0.1:8000/groups/${groupId}/members/${newUser.id}`,
+        apiUrl(`/groups/${groupId}/members/${newUser.id}`),
         { method: 'POST' }
       );
 
@@ -293,6 +296,8 @@ export default function GroupWorkspace({ section }: Props) {
       memberFeedback.showSuccess(t('memberAdded'));
       fetchMembers();
       fetchBalances();
+    } catch {
+      memberFeedback.showError(t('apiRequestFailed'));
     } finally {
       setAddingMember(false);
     }
@@ -300,22 +305,26 @@ export default function GroupWorkspace({ section }: Props) {
 
   // Delete member
   const deleteMember = async (userId: number) => {
-    const res = await fetch(
-      `http://127.0.0.1:8000/groups/${groupId}/members/${userId}`,
-      { method: 'DELETE' }
-    );
+    try {
+      const res = await fetch(
+        apiUrl(`/groups/${groupId}/members/${userId}`),
+        { method: 'DELETE' }
+      );
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (data.error || data.detail) {
-      memberFeedback.showError(data.error || data.detail);
-      return;
+      if (data.error || data.detail) {
+        memberFeedback.showError(data.error || data.detail);
+        return;
+      }
+
+      memberFeedback.showSuccess(t('memberRemoved'));
+      fetchMembers();
+      fetchExpenses();
+      fetchBalances();
+    } catch {
+      memberFeedback.showError(t('apiRequestFailed'));
     }
-
-    memberFeedback.showSuccess(t('memberRemoved'));
-    fetchMembers();
-    fetchExpenses();
-    fetchBalances();
   };
 
   // Add expense
@@ -354,7 +363,7 @@ export default function GroupWorkspace({ section }: Props) {
     setAddingExpense(true);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/expenses', {
+      const response = await fetch(apiUrl('/expenses'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -386,6 +395,8 @@ export default function GroupWorkspace({ section }: Props) {
       resetSplitValues();
       expenseFormFeedback.showSuccess(t('expenseSaved'));
       fetchBalances();
+    } catch {
+      expenseFormFeedback.showError(t('apiRequestFailed'));
     } finally {
       setAddingExpense(false);
     }
@@ -393,13 +404,17 @@ export default function GroupWorkspace({ section }: Props) {
 
   // Delete expense
   const deleteExpense = async (expenseId: number) => {
-    await fetch(`http://127.0.0.1:8000/expenses/${expenseId}`, {
-      method: 'DELETE',
-    });
+    try {
+      await fetch(apiUrl(`/expenses/${expenseId}`), {
+        method: 'DELETE',
+      });
 
-    setExpenses(expenses.filter((expense) => expense.id !== expenseId));
-    expenseListFeedback.showSuccess(t('expenseDeleted'));
-    fetchBalances();
+      setExpenses(expenses.filter((expense) => expense.id !== expenseId));
+      expenseListFeedback.showSuccess(t('expenseDeleted'));
+      fetchBalances();
+    } catch {
+      expenseListFeedback.showError(t('apiRequestFailed'));
+    }
   };
 
   const startEditingExpense = (expense: Expense) => {
@@ -461,7 +476,7 @@ export default function GroupWorkspace({ section }: Props) {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/expenses/${editingExpenseId}`,
+        apiUrl(`/expenses/${editingExpenseId}`),
         {
           method: 'PUT',
           headers: {
@@ -496,6 +511,8 @@ export default function GroupWorkspace({ section }: Props) {
 
       fetchExpenses();
       fetchBalances();
+    } catch {
+      expenseListFeedback.showError(t('apiRequestFailed'));
     } finally {
       setSavingExpense(false);
     }
@@ -503,11 +520,15 @@ export default function GroupWorkspace({ section }: Props) {
 
   // Delete group and return home
   const deleteGroup = async () => {
-    await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
-      method: 'DELETE',
-    });
+    try {
+      await fetch(apiUrl(`/groups/${groupId}`), {
+        method: 'DELETE',
+      });
 
-    router.push('/');
+      router.push('/');
+    } catch {
+      settingsFeedback.showError(t('apiRequestFailed'));
+    }
   };
 
   const saveGroupSettings = async () => {
@@ -515,7 +536,7 @@ export default function GroupWorkspace({ section }: Props) {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/groups/${groupId}/settings`,
+        apiUrl(`/groups/${groupId}/settings`),
         {
           method: 'PUT',
           headers: {
@@ -537,6 +558,8 @@ export default function GroupWorkspace({ section }: Props) {
       setGroup(updatedGroup);
       setCategoriesEnabled(updatedGroup.categories_enabled);
       settingsFeedback.showSuccess(t('settingsSaved'));
+    } catch {
+      settingsFeedback.showError(t('apiRequestFailed'));
     } finally {
       setSavingSettings(false);
     }
@@ -578,7 +601,7 @@ export default function GroupWorkspace({ section }: Props) {
     setRecordingSettlement(true);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/settlements', {
+      const response = await fetch(apiUrl('/settlements'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -604,6 +627,8 @@ export default function GroupWorkspace({ section }: Props) {
       settlementFeedback.showSuccess(t('settlementRecorded'));
       fetchBalances();
       fetchSettlements();
+    } catch {
+      settlementFeedback.showError(t('apiRequestFailed'));
     } finally {
       setRecordingSettlement(false);
     }
@@ -637,43 +662,47 @@ export default function GroupWorkspace({ section }: Props) {
   // Load data when page opens
   useEffect(() => {
     const loadGroupPage = async () => {
-      const [groupRes, membersRes, expensesRes, balancesRes, settlementsRes] =
-        await Promise.all([
-          fetch(`http://127.0.0.1:8000/groups/${groupId}`),
-          fetch(`http://127.0.0.1:8000/groups/${groupId}/members`),
-          fetch('http://127.0.0.1:8000/expenses'),
-          fetch(`http://127.0.0.1:8000/groups/${groupId}/balances`),
-          fetch(`http://127.0.0.1:8000/groups/${groupId}/settlements`),
+      try {
+        const [groupRes, membersRes, expensesRes, balancesRes, settlementsRes] =
+          await Promise.all([
+            fetch(apiUrl(`/groups/${groupId}`)),
+            fetch(apiUrl(`/groups/${groupId}/members`)),
+            fetch(apiUrl('/expenses')),
+            fetch(apiUrl(`/groups/${groupId}/balances`)),
+            fetch(apiUrl(`/groups/${groupId}/settlements`)),
+          ]);
+
+        const [
+          groupData,
+          membersData,
+          expensesData,
+          balancesData,
+          settlementsData,
+        ] = await Promise.all([
+          groupRes.json(),
+          membersRes.json(),
+          expensesRes.json(),
+          balancesRes.json(),
+          settlementsRes.json(),
         ]);
 
-      const [
-        groupData,
-        membersData,
-        expensesData,
-        balancesData,
-        settlementsData,
-      ] = await Promise.all([
-        groupRes.json(),
-        membersRes.json(),
-        expensesRes.json(),
-        balancesRes.json(),
-        settlementsRes.json(),
-      ]);
-
-      setGroup(groupData);
-      setCategoriesEnabled(Boolean(groupData.categories_enabled));
-      setMembers(membersData);
-      setExpenses(
-        expensesData.filter(
-          (expense: Expense) => expense.group_id === Number(groupId)
-        )
-      );
-      setBalances(balancesData);
-      setSettlements(settlementsData);
+        setGroup(groupData);
+        setCategoriesEnabled(Boolean(groupData.categories_enabled));
+        setMembers(membersData);
+        setExpenses(
+          expensesData.filter(
+            (expense: Expense) => expense.group_id === Number(groupId)
+          )
+        );
+        setBalances(balancesData);
+        setSettlements(settlementsData);
+      } catch {
+        showPageError(t('unableToLoadGroup'));
+      }
     };
 
     loadGroupPage();
-  }, [groupId]);
+  }, [groupId, showPageError, t]);
 
   return (
     <>
@@ -682,6 +711,9 @@ export default function GroupWorkspace({ section }: Props) {
           <h1 className="text-4xl font-bold">
             {group ? group.name : `Group #${groupId}`}
           </h1>
+          <div className="mt-4">
+            <FeedbackMessage feedback={pageFeedback.feedback} />
+          </div>
         </div>
 
         {section === 'overview' && (
@@ -745,7 +777,9 @@ export default function GroupWorkspace({ section }: Props) {
 
                 <div className="space-y-4">
                   {recentExpenses.length === 0 && (
-                    <p className="text-gray-500">{t('noExpensesYet')}</p>
+                    <p className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                      {t('noExpensesYet')}
+                    </p>
                   )}
 
                   {recentExpenses.map((expense) => (
@@ -769,7 +803,9 @@ export default function GroupWorkspace({ section }: Props) {
 
                 <div className="space-y-4">
                   {recentSettlements.length === 0 && (
-                    <p className="text-gray-500">{t('noSettlementsYet')}</p>
+                    <p className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                      {t('noSettlementsYet')}
+                    </p>
                   )}
 
                   {recentSettlements.map((settlement) => (
@@ -804,13 +840,15 @@ export default function GroupWorkspace({ section }: Props) {
 
             <div className="space-y-3 mb-5">
               {members.length === 0 && (
-                <p className="text-gray-500">{t('noMembersYet')}</p>
+                <p className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                  {t('noMembersYet')}
+                </p>
               )}
 
               {members.map((member) => (
                 <div
                   key={member.id}
-                  className="border rounded-xl p-4 flex justify-between items-center"
+                  className="border rounded-xl p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <span className="font-medium">{member.name}</span>
 
@@ -831,7 +869,7 @@ export default function GroupWorkspace({ section }: Props) {
               ))}
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <input
                 className="border p-3 rounded-xl w-full"
                 placeholder={t('memberName')}
@@ -980,7 +1018,9 @@ export default function GroupWorkspace({ section }: Props) {
 
               <div className="space-y-4">
                 {expenses.length === 0 && (
-                  <p className="text-gray-500">{t('noExpensesYet')}</p>
+                  <p className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                    {t('noExpensesYet')}
+                  </p>
                 )}
 
                 {expenses.map((expense) => {
@@ -1104,7 +1144,7 @@ export default function GroupWorkspace({ section }: Props) {
                           </div>
                         </div>
                       ) : (
-                        <div className="flex justify-between items-start gap-4">
+                        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                           <div className="flex-1">
                             <h3 className="font-semibold text-lg">
                               {expense.description}
@@ -1157,7 +1197,7 @@ export default function GroupWorkspace({ section }: Props) {
                             </div>
                           </div>
 
-                          <div className="flex shrink-0 items-center gap-5 pt-1">
+                          <div className="flex shrink-0 flex-wrap items-center gap-4 pt-1 sm:gap-5">
                             <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600">
                               {splitTypeLabels[expense.split_type || 'equal']}
                             </span>
@@ -1217,7 +1257,7 @@ export default function GroupWorkspace({ section }: Props) {
                     key={index}
                     className="border border-red-200 rounded-2xl p-5 bg-red-50"
                   >
-                    <div className="flex justify-between items-center gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-red-700 font-medium">
                           {balance.from_user_name} {t('owes')}{' '}
@@ -1249,7 +1289,9 @@ export default function GroupWorkspace({ section }: Props) {
 
               <div className="space-y-4">
                 {settlements.length === 0 && (
-                  <p className="text-gray-500">{t('noSettlementsYet')}</p>
+                  <p className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                    {t('noSettlementsYet')}
+                  </p>
                 )}
 
                 {settlements.map((settlement) => (
@@ -1276,24 +1318,32 @@ export default function GroupWorkspace({ section }: Props) {
         )}
 
         {section === 'analytics' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-6 rounded-2xl shadow">
-              <p className="text-sm text-gray-500">{t('totalSpent')}</p>
-              <p className="text-3xl font-bold mt-2">
-                {formatMoney(totalSpent)} ₸
+          <div className="space-y-4">
+            {expenses.length === 0 && settlements.length === 0 && (
+              <p className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-600 shadow">
+                {t('noAnalyticsYet')}
               </p>
-            </div>
+            )}
 
-            <div className="bg-white p-6 rounded-2xl shadow">
-              <p className="text-sm text-gray-500">{t('expenses')}</p>
-              <p className="text-3xl font-bold mt-2">{expenses.length}</p>
-            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white p-6 rounded-2xl shadow">
+                <p className="text-sm text-gray-500">{t('totalSpent')}</p>
+                <p className="text-3xl font-bold mt-2">
+                  {formatMoney(totalSpent)} ₸
+                </p>
+              </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow">
-              <p className="text-sm text-gray-500">{t('settled')}</p>
-              <p className="text-3xl font-bold mt-2">
-                {formatMoney(totalSettled)} ₸
-              </p>
+              <div className="bg-white p-6 rounded-2xl shadow">
+                <p className="text-sm text-gray-500">{t('expenses')}</p>
+                <p className="text-3xl font-bold mt-2">{expenses.length}</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow">
+                <p className="text-sm text-gray-500">{t('settled')}</p>
+                <p className="text-3xl font-bold mt-2">
+                  {formatMoney(totalSettled)} ₸
+                </p>
+              </div>
             </div>
           </div>
         )}

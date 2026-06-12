@@ -7,7 +7,7 @@ export function LanguageSwitcher() {
   const { language, setLanguage } = useLanguage();
 
   return (
-    <div className="flex justify-end gap-4">
+    <div className="flex flex-wrap gap-3 sm:justify-end sm:gap-4">
       {(['kz', 'ru', 'en'] as Language[]).map((nextLanguage) => (
         <button
           key={nextLanguage}
