@@ -1,6 +1,6 @@
 "use client";
 
-const members = ["Alissultan", "Dias", "Amir"];
+const members = ["Alissultan", "Aslan", "Ibragim"];
 
 const expenses = [
   {
@@ -13,13 +13,13 @@ const expenses = [
     id: 2,
     title: "Taxi",
     amount: 4500,
-    paidBy: "Dias",
+    paidBy: "Aslan",
   },
 ];
 
 const balances = [
-  "Dias owes Alissultan 2500 ₸",
-  "Amir owes Alissultan 4000 ₸",
+  "Aslan owes Alissultan 2500 ₸",
+  "Ibragim owes Alissultan 4000 ₸",
 ];
 
 type Props = {

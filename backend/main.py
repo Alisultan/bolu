@@ -574,6 +574,33 @@ def create_settlement(settlement: SettlementCreate, db: Session = Depends(get_db
     return new_settlement
 
 
+@app.get("/groups/{group_id}/settlements")
+def get_group_settlements(group_id: int, db: Session = Depends(get_db)):
+    settlements = (
+        db.query(Settlement)
+        .filter(Settlement.group_id == group_id)
+        .order_by(Settlement.id.desc())
+        .all()
+    )
+
+    result = []
+
+    for settlement in settlements:
+        from_user = db.query(User).filter(User.id == settlement.from_user).first()
+        to_user = db.query(User).filter(User.id == settlement.to_user).first()
+
+        result.append({
+            "id": settlement.id,
+            "from_user_id": settlement.from_user,
+            "from_user_name": from_user.name if from_user else None,
+            "to_user_id": settlement.to_user,
+            "to_user_name": to_user.name if to_user else None,
+            "amount": settlement.amount
+        })
+
+    return result
+
+
 @app.get("/settlements")
 def get_settlements(db: Session = Depends(get_db)):
     return db.query(Settlement).all()
