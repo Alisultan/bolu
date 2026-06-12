@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 
+// Types for data coming from backend
 type User = {
   id: number;
   name: string;
@@ -24,37 +25,58 @@ type Balance = {
   amount: number;
 };
 
+type Group = {
+  id: number;
+  name: string;
+  created_by: number;
+};
+
 export default function GroupPage() {
+  // Get group id from URL: /groups/[id]
   const params = useParams();
+  const router = useRouter();
   const groupId = params.id as string;
 
+  const [group, setGroup] = useState<Group | null>(null);
+
+  // Backend data states
   const [members, setMembers] = useState<User[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
 
+  // Form input states
   const [memberName, setMemberName] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [paidBy, setPaidBy] = useState('');
 
+  // Load members of this group
   const fetchMembers = async () => {
     const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}/members`);
     const data = await res.json();
+
     setMembers(data);
   };
 
+  // Load all expenses, then keep only expenses for this group
   const fetchExpenses = async () => {
     const res = await fetch('http://127.0.0.1:8000/expenses');
     const data = await res.json();
-    setExpenses(data.filter((expense: Expense) => expense.group_id === Number(groupId)));
+
+    setExpenses(
+      data.filter((expense: Expense) => expense.group_id === Number(groupId))
+    );
   };
 
+  // Load calculated balances for this group
   const fetchBalances = async () => {
     const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}/balances`);
     const data = await res.json();
+
     setBalances(data);
   };
 
+  // Add a new member to the current group
   const addMember = async () => {
     if (memberName.trim().length === 0) {
       alert('Member name cannot be empty');
@@ -78,25 +100,26 @@ export default function GroupPage() {
     fetchBalances();
   };
 
-  const deleteExpense = async (expenseId: number) => {
-    await fetch(`http://127.0.0.1:8000/expenses/${expenseId}`, {
+  // Remove a member from the current group
+  const deleteMember = async (userId: number) => {
+    await fetch(`http://127.0.0.1:8000/groups/${groupId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+
+    fetchMembers();
+    fetchExpenses();
+    fetchBalances();
+  };
+
+  const deleteGroup = async () => {
+    await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
         method: 'DELETE',
     });
 
-    setExpenses(expenses.filter((expense) => expense.id !== expenseId));
-    fetchBalances();
-};
+    router.push('/');
+  };
 
-const deleteMember = async (userId: number) => {
-  await fetch(`http://127.0.0.1:8000/groups/${groupId}/members/${userId}`, {
-    method: 'DELETE',
-  });
-
-  fetchMembers();
-  fetchExpenses();
-  fetchBalances();
-};
-
+  // Add a new expense to the current group
   const addExpense = async () => {
     if (description.trim().length === 0) {
       alert('Description cannot be empty');
@@ -142,7 +165,27 @@ const deleteMember = async (userId: number) => {
     fetchBalances();
   };
 
+  // Delete an expense from the current group
+  const deleteExpense = async (expenseId: number) => {
+    await fetch(`http://127.0.0.1:8000/expenses/${expenseId}`, {
+      method: 'DELETE',
+    });
+
+    setExpenses(expenses.filter((expense) => expense.id !== expenseId));
+    fetchBalances();
+  };
+
+
+  const fetchGroup = async () => {
+    const res = await fetch(`http://127.0.0.1:8000/groups/${groupId}`);
+    const data = await res.json();
+
+    setGroup(data);
+};
+
+  // Load group data when page opens or groupId changes
   useEffect(() => {
+    fetchGroup();
     fetchMembers();
     fetchExpenses();
     fetchBalances();
@@ -151,36 +194,54 @@ const deleteMember = async (userId: number) => {
   return (
     <main className="min-h-screen bg-gray-100 p-10">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold mb-6">Group #{groupId}</h1>
+        <h1 className="text-4xl font-bold mb-6">
+            {group ? group.name : `Group #${groupId}`}
+        </h1>
 
+        <button
+        onClick={() => {
+            const confirmed = confirm(
+            'Are you sure you want to delete this group? This action cannot be undone.'
+            );
+
+            if (!confirmed) return;
+
+            deleteGroup();
+        }}
+        className="text-red-600 hover:underline mb-6"
+        >
+        Delete Group
+        </button>
+
+        {/* Members section */}
         <div className="bg-white p-6 rounded-xl shadow mb-6">
-          <h2 className="text-2xl font-semibold mb-4">Members</h2>
+          <h2 className="text-2xl font-semibold mb-4">
+            Members ({members.length})
+          </h2>
 
           <div className="space-y-2 mb-4">
             {members.map((member) => (
-            <div
+              <div
                 key={member.id}
                 className="border rounded p-3 flex justify-between items-center"
-            >
+              >
                 <span>{member.name}</span>
 
                 <button
-                onClick={() => {
+                  onClick={() => {
                     const confirmed = confirm(
-                    'Are you sure you want to remove this member from the group?'
+                      'Are you sure you want to remove this member from the group?'
                     );
 
-                    if (!confirmed) {
-                    return;
-                    }
+                    if (!confirmed) return;
 
                     deleteMember(member.id);
-                }}
-                className="text-red-600 hover:underline"
+                  }}
+                  className="text-red-600 hover:underline"
                 >
-                Delete
+                  Delete
                 </button>
-            </div>
+              </div>
             ))}
           </div>
 
@@ -201,6 +262,7 @@ const deleteMember = async (userId: number) => {
           </div>
         </div>
 
+        {/* Add expense section */}
         <div className="bg-white p-6 rounded-xl shadow mb-6">
           <h2 className="text-2xl font-semibold mb-4">Add Expense</h2>
 
@@ -225,6 +287,7 @@ const deleteMember = async (userId: number) => {
             onChange={(e) => setPaidBy(e.target.value)}
           >
             <option value="">Who paid?</option>
+
             {members.map((member) => (
               <option key={member.id} value={member.id}>
                 {member.name}
@@ -240,8 +303,11 @@ const deleteMember = async (userId: number) => {
           </button>
         </div>
 
+        {/* Expenses section */}
         <div className="bg-white p-6 rounded-xl shadow mb-6">
-          <h2 className="text-2xl font-semibold mb-4">Expenses</h2>
+          <h2 className="text-2xl font-semibold mb-4">
+            Expenses ({expenses.length})
+          </h2>
 
           <div className="space-y-2">
             {expenses.length === 0 && (
@@ -253,35 +319,36 @@ const deleteMember = async (userId: number) => {
 
               return (
                 <div
-                key={expense.id}
-                className="border rounded p-3 flex justify-between items-center"
+                  key={expense.id}
+                  className="border rounded p-3 flex justify-between items-center"
                 >
-                <div>
-                    {expense.description} — {expense.amount.toLocaleString()} ₸ paid by{' '}
+                  <div>
+                    {expense.description} —{' '}
+                    {expense.amount.toLocaleString()} ₸ paid by{' '}
                     {payer ? payer.name : `User #${expense.paid_by}`}
-                </div>
+                  </div>
 
-                <button
-                onClick={() => {
-                    const confirmed = confirm(
-                    'Are you sure you want to delete this expense?'
-                    );
+                  <button
+                    onClick={() => {
+                      const confirmed = confirm(
+                        'Are you sure you want to delete this expense?'
+                      );
 
-                    if (!confirmed) {
-                    return;
-                    }
-                    deleteExpense(expense.id);
-                }}
-                className="text-red-600 hover:underline"
-                >
-                Delete
-                </button>
+                      if (!confirmed) return;
+
+                      deleteExpense(expense.id);
+                    }}
+                    className="text-red-600 hover:underline"
+                  >
+                    Delete
+                  </button>
                 </div>
               );
             })}
           </div>
         </div>
 
+        {/* Balances section */}
         <div className="bg-white p-6 rounded-xl shadow">
           <h2 className="text-2xl font-semibold mb-4">Balances</h2>
 

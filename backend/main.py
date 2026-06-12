@@ -60,13 +60,26 @@ def get_users(db: Session = Depends(get_db)):
 
 @app.post("/groups")
 def create_group(name: str, created_by: int, db: Session = Depends(get_db)):
-    if len(name.strip()) == 0:
+    clean_name = name.strip()
+
+    if len(clean_name) == 0:
         return {"error": "Group name cannot be empty"}
-    
-    group = Group(name=name, created_by=created_by)
+
+    existing_group = (
+        db.query(Group)
+        .filter(Group.created_by == created_by)
+        .filter(Group.name == clean_name)
+        .first()
+    )
+
+    if existing_group:
+        return {"error": "You already have a group with this name"}
+
+    group = Group(name=clean_name, created_by=created_by)
     db.add(group)
     db.commit()
     db.refresh(group)
+
     return group
 
 
@@ -74,8 +87,54 @@ def create_group(name: str, created_by: int, db: Session = Depends(get_db)):
 def get_groups(db: Session = Depends(get_db)):
     return db.query(Group).all()
 
+@app.get("/groups/{group_id}")
+def get_group(group_id: int, db: Session = Depends(get_db)):
+    group = db.query(Group).filter(Group.id == group_id).first()
+
+    if group is None:
+        return {"error": "Group not found"}
+
+    return group
+
+@app.delete("/groups/{group_id}")
+def delete_group(group_id: int, db: Session = Depends(get_db)):
+    group = db.query(Group).filter(Group.id == group_id).first()
+
+    if group is None:
+        return {"error": "Group not found"}
+
+    # Delete related expense participants first
+    group_expenses = db.query(Expense).filter(Expense.group_id == group_id).all()
+
+    for expense in group_expenses:
+        db.query(ExpenseParticipant).filter(
+            ExpenseParticipant.expense_id == expense.id
+        ).delete()
+
+    # Delete expenses, members, settlements, then group
+    db.query(Expense).filter(Expense.group_id == group_id).delete()
+    db.query(GroupMember).filter(GroupMember.group_id == group_id).delete()
+    db.query(Settlement).filter(Settlement.group_id == group_id).delete()
+
+    db.delete(group)
+    db.commit()
+
+    return {"message": "Group deleted"}
+
 @app.post("/groups/{group_id}/members/{user_id}")
 def add_member_to_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
+    existing_member = (
+        db.query(GroupMember)
+        .filter(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == user_id
+        )
+        .first()
+    )
+
+    if existing_member:
+        return {"error": "This member is already in the group"}
+
     member = GroupMember(group_id=group_id, user_id=user_id)
 
     db.add(member)
@@ -83,6 +142,25 @@ def add_member_to_group(group_id: int, user_id: int, db: Session = Depends(get_d
     db.refresh(member)
 
     return member
+
+@app.delete("/groups/{group_id}/members/{user_id}")
+def delete_member_from_group(group_id: int, user_id: int, db: Session = Depends(get_db)):
+    member = (
+        db.query(GroupMember)
+        .filter(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == user_id
+        )
+        .first()
+    )
+
+    if member is None:
+        return {"error": "Member not found in this group"}
+
+    db.delete(member)
+    db.commit()
+
+    return {"message": "Member removed from group"}
 
 @app.delete("/groups/{group_id}/members/{user_id}")
 def delete_member_from_group(group_id: int, user_id: int, db: Session = Depends(get_db)):

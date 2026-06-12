@@ -1,6 +1,6 @@
 'use client';
 
-import Link from "next/link";
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 type Group = {
@@ -13,20 +13,27 @@ export default function Home() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupName, setGroupName] = useState('');
 
+  const fetchGroups = async () => {
+    const res = await fetch('http://127.0.0.1:8000/groups');
+    const data = await res.json();
+
+    setGroups(data);
+  };
+
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/groups')
-      .then((res) => res.json())
-      .then((data) => setGroups(data));
+    fetchGroups();
   }, []);
 
   const createGroup = async () => {
+    const cleanName = groupName.trim();
 
-    if (groupName.trim().length === 0) {
-      alert("Group name cannot be empty");
+    if (cleanName.length === 0) {
+      alert('Group name cannot be empty');
       return;
     }
+
     const response = await fetch(
-      `http://127.0.0.1:8000/groups?name=${groupName}&created_by=1`,
+      `http://127.0.0.1:8000/groups?name=${cleanName}&created_by=1`,
       {
         method: 'POST',
       }
@@ -34,8 +41,27 @@ export default function Home() {
 
     const newGroup = await response.json();
 
+    if (newGroup.error) {
+      alert(newGroup.error);
+      return;
+    }
+
     setGroups([...groups, newGroup]);
     setGroupName('');
+  };
+
+  const deleteGroup = async (groupId: number) => {
+    const confirmed = confirm(
+      'Are you sure you want to delete this group? This action cannot be undone.'
+    );
+
+    if (!confirmed) return;
+
+    await fetch(`http://127.0.0.1:8000/groups/${groupId}`, {
+      method: 'DELETE',
+    });
+
+    fetchGroups();
   };
 
   return (
@@ -51,12 +77,14 @@ export default function Home() {
 
         <div className="bg-white p-6 rounded-xl shadow mb-6">
           <h2 className="text-2xl font-semibold mb-4">Create Group</h2>
+
           <input
             className="border p-3 rounded w-full"
             placeholder="Group Name"
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
           />
+
           <button
             onClick={createGroup}
             className="mt-3 bg-black text-white px-4 py-2 rounded"
@@ -66,17 +94,27 @@ export default function Home() {
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow">
-          <h2 className="text-2xl font-semibold mb-4">Your Groups</h2>
+          <h2 className="text-2xl font-semibold mb-4">
+            Your Groups ({groups.length})
+          </h2>
 
           <div className="space-y-3">
             {groups.map((group) => (
-          <Link
-            key={group.id}
-            href={`/groups/${group.id}`}
-            className="block border rounded p-4 hover:bg-gray-50"
-          >
-            {group.name}
-          </Link>
+              <div
+                key={group.id}
+                className="border rounded p-4 flex justify-between items-center"
+              >
+                <Link href={`/groups/${group.id}`} className="flex-1">
+                  {group.name}
+                </Link>
+
+                <button
+                  onClick={() => deleteGroup(group.id)}
+                  className="text-red-600 hover:underline"
+                >
+                  Delete
+                </button>
+              </div>
             ))}
           </div>
         </div>
