@@ -3,6 +3,9 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
+import { useLanguage } from './i18n/LanguageProvider';
+import { LanguageSwitcher } from './i18n/LanguageSwitcher';
+
 type Group = {
   id: number;
   name: string;
@@ -10,6 +13,7 @@ type Group = {
 };
 
 export default function Home() {
+  const { t } = useLanguage();
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupName, setGroupName] = useState('');
 
@@ -35,7 +39,7 @@ export default function Home() {
     const cleanName = groupName.trim();
 
     if (cleanName.length === 0) {
-      alert('Group name cannot be empty');
+      alert(t('groupNameCannotBeEmpty'));
       return;
     }
 
@@ -59,7 +63,7 @@ export default function Home() {
 
   const deleteGroup = async (groupId: number) => {
     const confirmed = confirm(
-      'Are you sure you want to delete this group? This action cannot be undone.'
+      t('deleteGroupConfirmation')
     );
 
     if (!confirmed) return;
@@ -74,20 +78,18 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-100 p-10">
       <div className="max-w-4xl mx-auto">
-        <div className="flex justify-end gap-4 mb-6">
-          <button>Қазақша</button>
-          <button>Русский</button>
-          <button>English</button>
+        <div className="mb-6">
+          <LanguageSwitcher />
         </div>
 
         <h1 className="text-5xl font-bold mb-8">Bolu</h1>
 
         <div className="bg-white p-6 rounded-xl shadow mb-6">
-          <h2 className="text-2xl font-semibold mb-4">Create Group</h2>
+          <h2 className="text-2xl font-semibold mb-4">{t('createGroup')}</h2>
 
           <input
             className="border p-3 rounded w-full"
-            placeholder="Group Name"
+            placeholder={t('groupName')}
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
           />
@@ -96,13 +98,13 @@ export default function Home() {
             onClick={createGroup}
             className="mt-3 bg-black text-white px-4 py-2 rounded"
           >
-            Create Group
+            {t('createGroup')}
           </button>
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow">
           <h2 className="text-2xl font-semibold mb-4">
-            Your Groups ({groups.length})
+            {t('yourGroups')} ({groups.length})
           </h2>
 
           <div className="space-y-3">
@@ -119,7 +121,7 @@ export default function Home() {
                   onClick={() => deleteGroup(group.id)}
                   className="text-red-600 hover:underline"
                 >
-                  Delete
+                  {t('delete')}
                 </button>
               </div>
             ))}

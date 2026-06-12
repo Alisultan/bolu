@@ -3,16 +3,20 @@
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 
+import { useLanguage } from '../../i18n/LanguageProvider';
+import type { TranslationKey } from '../../i18n/translations';
+
 const navItems = [
-  { label: 'Overview', href: '' },
-  { label: 'Expenses', href: '/expenses' },
-  { label: 'Settlements', href: '/settlements' },
-  { label: 'Members', href: '/members' },
-  { label: 'Analytics', href: '/analytics' },
-  { label: 'Settings', href: '/settings' },
-];
+  { labelKey: 'overview', href: '' },
+  { labelKey: 'expenses', href: '/expenses' },
+  { labelKey: 'settlements', href: '/settlements' },
+  { labelKey: 'members', href: '/members' },
+  { labelKey: 'analytics', href: '/analytics' },
+  { labelKey: 'settings', href: '/settings' },
+ ] satisfies { labelKey: TranslationKey; href: string }[];
 
 export default function GroupNav() {
+  const { t } = useLanguage();
   const params = useParams();
   const pathname = usePathname();
   const groupId = params.id as string;
@@ -27,7 +31,7 @@ export default function GroupNav() {
 
           return (
             <Link
-              key={item.label}
+              key={item.labelKey}
               href={href}
               className={`rounded-xl px-4 py-2 text-sm font-medium ${
                 isActive
@@ -35,7 +39,7 @@ export default function GroupNav() {
                   : 'bg-white text-gray-700 hover:bg-gray-50'
               }`}
             >
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}

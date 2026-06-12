@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
+import { useLanguage } from '../../i18n/LanguageProvider';
+import type { TranslationKey } from '../../i18n/translations';
+
 type User = {
   id: number;
   name: string;
@@ -70,15 +73,16 @@ type Props = {
 };
 
 const expenseCategories = [
-  'Food',
-  'Transport',
-  'Rent',
-  'Entertainment',
-  'Shopping',
-  'Other',
-];
+  { value: 'Food', labelKey: 'food' },
+  { value: 'Transport', labelKey: 'transport' },
+  { value: 'Rent', labelKey: 'rent' },
+  { value: 'Entertainment', labelKey: 'entertainment' },
+  { value: 'Shopping', labelKey: 'shopping' },
+  { value: 'Other', labelKey: 'other' },
+] satisfies { value: string; labelKey: TranslationKey }[];
 
 export default function GroupWorkspace({ section }: Props) {
+  const { t } = useLanguage();
   const params = useParams();
   const router = useRouter();
   const groupId = params.id as string;
@@ -120,10 +124,16 @@ export default function GroupWorkspace({ section }: Props) {
   const [settingsMessage, setSettingsMessage] = useState('');
 
   const splitTypeLabels: Record<SplitType, string> = {
-    equal: 'Equal',
-    percentage: 'Percentage',
-    exact: 'Exact',
+    equal: t('equal'),
+    percentage: t('percentage'),
+    exact: t('exact'),
   };
+
+  const getCategoryLabel = (value: string) =>
+    t(
+      expenseCategories.find((expenseCategory) => expenseCategory.value === value)
+        ?.labelKey || 'other'
+    );
 
   const formatMoney = (value: number) =>
     value.toLocaleString(undefined, {
@@ -187,7 +197,7 @@ export default function GroupWorkspace({ section }: Props) {
       currentSplitType === 'percentage' &&
       Math.round(total * 100) / 100 !== 100
     ) {
-      alert('Percentages must add up to 100');
+      alert(t('percentagesMustAddTo100'));
       return false;
     }
 
@@ -196,7 +206,7 @@ export default function GroupWorkspace({ section }: Props) {
       Math.round(total * 100) / 100 !==
         Math.round(Number(currentAmount) * 100) / 100
     ) {
-      alert('Exact split amounts must add up to the expense amount');
+      alert(t('exactSplitMustMatchAmount'));
       return false;
     }
 
@@ -241,7 +251,7 @@ export default function GroupWorkspace({ section }: Props) {
     const cleanName = memberName.trim();
 
     if (cleanName.length === 0) {
-      alert('Member name cannot be empty');
+      alert(t('memberNameCannotBeEmpty'));
       return;
     }
 
@@ -291,22 +301,22 @@ export default function GroupWorkspace({ section }: Props) {
   // Add expense
   const addExpense = async () => {
     if (description.trim().length === 0) {
-      alert('Description cannot be empty');
+      alert(t('descriptionCannotBeEmpty'));
       return;
     }
 
     if (!amount || Number(amount) <= 0) {
-      alert('Amount must be greater than 0');
+      alert(t('amountMustBeGreaterThanZero'));
       return;
     }
 
     if (!paidBy) {
-      alert('Please select who paid');
+      alert(t('pleaseSelectWhoPaid'));
       return;
     }
 
     if (members.length === 0) {
-      alert('Add members first');
+      alert(t('addMembersFirst'));
       return;
     }
 
@@ -387,17 +397,17 @@ export default function GroupWorkspace({ section }: Props) {
     if (editingExpenseId === null) return;
 
     if (editDescription.trim().length === 0) {
-      alert('Description cannot be empty');
+      alert(t('descriptionCannotBeEmpty'));
       return;
     }
 
     if (!editAmount || Number(editAmount) <= 0) {
-      alert('Amount must be greater than 0');
+      alert(t('amountMustBeGreaterThanZero'));
       return;
     }
 
     if (!editPaidBy) {
-      alert('Please select who paid');
+      alert(t('pleaseSelectWhoPaid'));
       return;
     }
 
@@ -469,7 +479,7 @@ export default function GroupWorkspace({ section }: Props) {
 
     setGroup(updatedGroup);
     setCategoriesEnabled(updatedGroup.categories_enabled);
-    setSettingsMessage('Settings saved');
+    setSettingsMessage(t('settingsSaved'));
   };
 
   // Settle debt
@@ -494,12 +504,12 @@ export default function GroupWorkspace({ section }: Props) {
         : Number(partialSettlementAmount);
 
     if (settlementAmount <= 0) {
-      alert('Amount to settle must be greater than 0');
+      alert(t('amountMustBeGreaterThanZero'));
       return;
     }
 
     if (settlementAmount > settlementBalance.amount) {
-      alert('Partial amount cannot be greater than the total balance');
+      alert(t('partialAmountTooHigh'));
       return;
     }
 
@@ -601,21 +611,21 @@ export default function GroupWorkspace({ section }: Props) {
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-white p-6 rounded-2xl shadow">
-                <p className="text-sm text-gray-500">Total spent</p>
+                <p className="text-sm text-gray-500">{t('totalSpent')}</p>
                 <p className="text-3xl font-bold mt-2">
                   {formatMoney(totalSpent)} ₸
                 </p>
               </div>
 
               <div className="bg-white p-6 rounded-2xl shadow">
-                <p className="text-sm text-gray-500">Outstanding</p>
+                <p className="text-sm text-gray-500">{t('outstanding')}</p>
                 <p className="text-3xl font-bold mt-2">
                   {formatMoney(totalOutstanding)} ₸
                 </p>
               </div>
 
               <div className="bg-white p-6 rounded-2xl shadow">
-                <p className="text-sm text-gray-500">Settled</p>
+                <p className="text-sm text-gray-500">{t('settled')}</p>
                 <p className="text-3xl font-bold mt-2">
                   {formatMoney(totalSettled)} ₸
                 </p>
@@ -624,12 +634,12 @@ export default function GroupWorkspace({ section }: Props) {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <section className="bg-white p-6 rounded-2xl shadow">
-                <h2 className="text-2xl font-semibold mb-4">Balances</h2>
+                <h2 className="text-2xl font-semibold mb-4">{t('balances')}</h2>
 
                 <div className="space-y-4">
                   {balances.length === 0 && (
                     <p className="text-green-700 bg-green-50 border border-green-200 rounded-xl p-4">
-                      Everyone is settled up.
+                      {t('everyoneSettled')}
                     </p>
                   )}
 
@@ -639,7 +649,8 @@ export default function GroupWorkspace({ section }: Props) {
                       className="border border-red-200 rounded-2xl p-5 bg-red-50"
                     >
                       <p className="text-red-700 font-medium">
-                        {balance.from_user_name} owes {balance.to_user_name}
+                        {balance.from_user_name} {t('owes')}{' '}
+                        {balance.to_user_name}
                       </p>
 
                       <p className="text-2xl font-bold text-red-700">
@@ -652,12 +663,12 @@ export default function GroupWorkspace({ section }: Props) {
 
               <section className="bg-white p-6 rounded-2xl shadow">
                 <h2 className="text-2xl font-semibold mb-4">
-                  Recent Expenses
+                  {t('recentExpenses')}
                 </h2>
 
                 <div className="space-y-4">
                   {recentExpenses.length === 0 && (
-                    <p className="text-gray-500">No expenses yet.</p>
+                    <p className="text-gray-500">{t('noExpensesYet')}</p>
                   )}
 
                   {recentExpenses.map((expense) => (
@@ -676,12 +687,12 @@ export default function GroupWorkspace({ section }: Props) {
 
               <section className="bg-white p-6 rounded-2xl shadow">
                 <h2 className="text-2xl font-semibold mb-4">
-                  Recent Settlements
+                  {t('recentSettlements')}
                 </h2>
 
                 <div className="space-y-4">
                   {recentSettlements.length === 0 && (
-                    <p className="text-gray-500">No settlements yet.</p>
+                    <p className="text-gray-500">{t('noSettlementsYet')}</p>
                   )}
 
                   {recentSettlements.map((settlement) => (
@@ -692,7 +703,7 @@ export default function GroupWorkspace({ section }: Props) {
                       <p className="font-medium">
                         {settlement.from_user_name ||
                           getMemberName(settlement.from_user_id)}{' '}
-                        paid{' '}
+                        {t('paid')}{' '}
                         {settlement.to_user_name ||
                           getMemberName(settlement.to_user_id)}
                       </p>
@@ -711,12 +722,12 @@ export default function GroupWorkspace({ section }: Props) {
         {section === 'members' && (
           <section className="bg-white p-6 rounded-2xl shadow">
             <h2 className="text-2xl font-semibold mb-4">
-              Members ({members.length})
+              {t('members')} ({members.length})
             </h2>
 
             <div className="space-y-3 mb-5">
               {members.length === 0 && (
-                <p className="text-gray-500">No members yet.</p>
+                <p className="text-gray-500">{t('noMembersYet')}</p>
               )}
 
               {members.map((member) => (
@@ -731,12 +742,13 @@ export default function GroupWorkspace({ section }: Props) {
                       setConfirmAction({
                         type: 'delete-member',
                         userId: member.id,
-                        message: `Remove ${member.name} from this group?`,
+                        message:
+                          `${t('removeMemberConfirmationPrefix')} ${member.name} ${t('removeMemberConfirmationSuffix')}`.trim(),
                       })
                     }
                     className="text-red-600 hover:underline text-sm"
                   >
-                    Delete
+                    {t('delete')}
                   </button>
                 </div>
               ))}
@@ -745,7 +757,7 @@ export default function GroupWorkspace({ section }: Props) {
             <div className="flex gap-3">
               <input
                 className="border p-3 rounded-xl w-full"
-                placeholder="Member name"
+                placeholder={t('memberName')}
                 value={memberName}
                 onChange={(e) => setMemberName(e.target.value)}
               />
@@ -754,7 +766,7 @@ export default function GroupWorkspace({ section }: Props) {
                 onClick={addMember}
                 className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
               >
-                Add
+                {t('add')}
               </button>
             </div>
           </section>
@@ -763,18 +775,20 @@ export default function GroupWorkspace({ section }: Props) {
         {section === 'expenses' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <section className="bg-white p-6 rounded-2xl shadow">
-              <h2 className="text-2xl font-semibold mb-4">Add Expense</h2>
+              <h2 className="text-2xl font-semibold mb-4">
+                {t('addExpense')}
+              </h2>
 
               <input
                 className="border p-3 rounded-xl w-full mb-3"
-                placeholder="Description, e.g. Dinner"
+                placeholder={t('descriptionPlaceholder')}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
 
               <input
                 className="border p-3 rounded-xl w-full mb-3"
-                placeholder="Amount"
+                placeholder={t('amount')}
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -785,7 +799,7 @@ export default function GroupWorkspace({ section }: Props) {
                 value={paidBy}
                 onChange={(e) => setPaidBy(e.target.value)}
               >
-                <option value="">Who paid?</option>
+                <option value="">{t('whoPaid')}</option>
 
                 {members.map((member) => (
                   <option key={member.id} value={member.id}>
@@ -797,7 +811,7 @@ export default function GroupWorkspace({ section }: Props) {
               {group?.categories_enabled && (
                 <div className="mb-3">
                   <label className="block text-sm font-medium mb-2">
-                    Category
+                    {t('category')}
                   </label>
                   <select
                     className="border p-3 rounded-xl w-full"
@@ -805,8 +819,11 @@ export default function GroupWorkspace({ section }: Props) {
                     onChange={(e) => setCategory(e.target.value)}
                   >
                     {expenseCategories.map((expenseCategory) => (
-                      <option key={expenseCategory} value={expenseCategory}>
-                        {expenseCategory}
+                      <option
+                        key={expenseCategory.value}
+                        value={expenseCategory.value}
+                      >
+                        {t(expenseCategory.labelKey)}
                       </option>
                     ))}
                   </select>
@@ -815,7 +832,7 @@ export default function GroupWorkspace({ section }: Props) {
 
               <div className="mb-3">
                 <label className="block text-sm font-medium mb-2">
-                  Split type
+                  {t('splitType')}
                 </label>
                 <select
                   className="border p-3 rounded-xl w-full"
@@ -825,9 +842,9 @@ export default function GroupWorkspace({ section }: Props) {
                     resetSplitValues();
                   }}
                 >
-                  <option value="equal">Equal split</option>
-                  <option value="percentage">Percentage split</option>
-                  <option value="exact">Exact split</option>
+                  <option value="equal">{t('equalSplit')}</option>
+                  <option value="percentage">{t('percentageSplit')}</option>
+                  <option value="exact">{t('exactSplit')}</option>
                 </select>
               </div>
 
@@ -841,7 +858,7 @@ export default function GroupWorkspace({ section }: Props) {
                       <input
                         className="border p-3 rounded-xl w-full bg-white"
                         placeholder={
-                          splitType === 'exact' ? 'Amount' : 'Percentage'
+                          splitType === 'exact' ? t('amount') : t('percentage')
                         }
                         type="number"
                         value={splitValues[member.id] || ''}
@@ -861,18 +878,18 @@ export default function GroupWorkspace({ section }: Props) {
                 onClick={addExpense}
                 className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
               >
-                Add Expense
+                {t('addExpense')}
               </button>
             </section>
 
             <section className="bg-white p-6 rounded-2xl shadow">
               <h2 className="text-2xl font-semibold mb-4">
-                Expenses ({expenses.length})
+                {t('expenses')} ({expenses.length})
               </h2>
 
               <div className="space-y-4">
                 {expenses.length === 0 && (
-                  <p className="text-gray-500">No expenses yet.</p>
+                  <p className="text-gray-500">{t('noExpensesYet')}</p>
                 )}
 
                 {expenses.map((expense) => {
@@ -888,7 +905,7 @@ export default function GroupWorkspace({ section }: Props) {
                         <div className="space-y-3">
                           <input
                             className="border p-3 rounded-xl w-full bg-white"
-                            placeholder="Description"
+                            placeholder={t('descriptionPlaceholder')}
                             value={editDescription}
                             onChange={(e) =>
                               setEditDescription(e.target.value)
@@ -897,7 +914,7 @@ export default function GroupWorkspace({ section }: Props) {
 
                           <input
                             className="border p-3 rounded-xl w-full bg-white"
-                            placeholder="Amount"
+                            placeholder={t('amount')}
                             type="number"
                             value={editAmount}
                             onChange={(e) => setEditAmount(e.target.value)}
@@ -908,7 +925,7 @@ export default function GroupWorkspace({ section }: Props) {
                             value={editPaidBy}
                             onChange={(e) => setEditPaidBy(e.target.value)}
                           >
-                            <option value="">Who paid?</option>
+                            <option value="">{t('whoPaid')}</option>
 
                             {members.map((member) => (
                               <option key={member.id} value={member.id}>
@@ -925,10 +942,10 @@ export default function GroupWorkspace({ section }: Props) {
                             >
                               {expenseCategories.map((expenseCategory) => (
                                 <option
-                                  key={expenseCategory}
-                                  value={expenseCategory}
+                                  key={expenseCategory.value}
+                                  value={expenseCategory.value}
                                 >
-                                  {expenseCategory}
+                                  {t(expenseCategory.labelKey)}
                                 </option>
                               ))}
                             </select>
@@ -942,9 +959,11 @@ export default function GroupWorkspace({ section }: Props) {
                               resetEditSplitValues();
                             }}
                           >
-                            <option value="equal">Equal split</option>
-                            <option value="percentage">Percentage split</option>
-                            <option value="exact">Exact split</option>
+                            <option value="equal">{t('equalSplit')}</option>
+                            <option value="percentage">
+                              {t('percentageSplit')}
+                            </option>
+                            <option value="exact">{t('exactSplit')}</option>
                           </select>
 
                           {editSplitType !== 'equal' && (
@@ -958,8 +977,8 @@ export default function GroupWorkspace({ section }: Props) {
                                     className="border p-3 rounded-xl w-full"
                                     placeholder={
                                       editSplitType === 'exact'
-                                        ? 'Amount'
-                                        : 'Percentage'
+                                        ? t('amount')
+                                        : t('percentage')
                                     }
                                     type="number"
                                     value={editSplitValues[member.id] || ''}
@@ -980,14 +999,14 @@ export default function GroupWorkspace({ section }: Props) {
                               onClick={cancelExpenseEdit}
                               className="border px-4 py-2 rounded-xl hover:bg-gray-100 text-sm"
                             >
-                              Cancel
+                              {t('cancel')}
                             </button>
 
                             <button
                               onClick={saveExpenseEdit}
                               className="bg-black text-white px-4 py-2 rounded-xl hover:bg-gray-800 text-sm"
                             >
-                              Save
+                              {t('save')}
                             </button>
                           </div>
                         </div>
@@ -1000,14 +1019,14 @@ export default function GroupWorkspace({ section }: Props) {
 
                             <div className="mt-3 space-y-1 text-sm text-gray-600">
                               <p>
-                                Total:{' '}
+                                {t('total')}:{' '}
                                 <span className="font-medium text-black">
                                   {formatMoney(expense.amount)} ₸
                                 </span>
                               </p>
 
                               <p>
-                                Paid by:{' '}
+                                {t('paidBy')}:{' '}
                                 <span className="font-medium text-black">
                                   {payer
                                     ? payer.name
@@ -1017,9 +1036,9 @@ export default function GroupWorkspace({ section }: Props) {
 
                               {group?.categories_enabled && (
                                 <p>
-                                  Category:{' '}
+                                  {t('category')}:{' '}
                                   <span className="font-medium text-black">
-                                    {expense.category || 'Other'}
+                                    {getCategoryLabel(expense.category)}
                                   </span>
                                 </p>
                               )}
@@ -1027,7 +1046,7 @@ export default function GroupWorkspace({ section }: Props) {
 
                             <div className="mt-4">
                               <p className="text-sm font-medium text-gray-900">
-                                Shares:
+                                {t('shares')}:
                               </p>
 
                               <div className="mt-2 space-y-1 text-sm text-gray-600">
@@ -1055,7 +1074,7 @@ export default function GroupWorkspace({ section }: Props) {
                                 onClick={() => startEditingExpense(expense)}
                                 className="text-blue-600 hover:underline text-sm leading-none"
                               >
-                                Edit
+                                {t('edit')}
                               </button>
 
                               <button
@@ -1063,12 +1082,12 @@ export default function GroupWorkspace({ section }: Props) {
                                   setConfirmAction({
                                     type: 'delete-expense',
                                     expenseId: expense.id,
-                                    message: `Delete expense "${expense.description}"?`,
+                                    message: `${t('delete')} "${expense.description}"?`,
                                   })
                                 }
                                 className="text-red-600 hover:underline text-sm leading-none"
                               >
-                                Delete
+                                {t('delete')}
                               </button>
                             </div>
                           </div>
@@ -1085,12 +1104,12 @@ export default function GroupWorkspace({ section }: Props) {
         {section === 'settlements' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <section className="bg-white p-6 rounded-2xl shadow">
-              <h2 className="text-2xl font-semibold mb-4">Balances</h2>
+              <h2 className="text-2xl font-semibold mb-4">{t('balances')}</h2>
 
               <div className="space-y-4">
                 {balances.length === 0 && (
                   <p className="text-green-700 bg-green-50 border border-green-200 rounded-xl p-4">
-                    Everyone is settled up.
+                    {t('everyoneSettled')}
                   </p>
                 )}
 
@@ -1102,7 +1121,8 @@ export default function GroupWorkspace({ section }: Props) {
                     <div className="flex justify-between items-center gap-4">
                       <div>
                         <p className="text-red-700 font-medium">
-                          {balance.from_user_name} owes {balance.to_user_name}
+                          {balance.from_user_name} {t('owes')}{' '}
+                          {balance.to_user_name}
                         </p>
 
                         <p className="text-2xl font-bold text-red-700">
@@ -1114,7 +1134,7 @@ export default function GroupWorkspace({ section }: Props) {
                         onClick={() => openSettlementModal(balance)}
                         className="bg-black text-white px-5 py-2 rounded-xl text-sm hover:bg-gray-800"
                       >
-                        Settle
+                        {t('settle')}
                       </button>
                     </div>
                   </div>
@@ -1124,12 +1144,12 @@ export default function GroupWorkspace({ section }: Props) {
 
             <section className="bg-white p-6 rounded-2xl shadow">
               <h2 className="text-2xl font-semibold mb-4">
-                Settlement History
+                {t('settlementHistory')}
               </h2>
 
               <div className="space-y-4">
                 {settlements.length === 0 && (
-                  <p className="text-gray-500">No settlements yet.</p>
+                  <p className="text-gray-500">{t('noSettlementsYet')}</p>
                 )}
 
                 {settlements.map((settlement) => (
@@ -1140,7 +1160,7 @@ export default function GroupWorkspace({ section }: Props) {
                     <p className="font-medium">
                       {settlement.from_user_name ||
                         getMemberName(settlement.from_user_id)}{' '}
-                      paid{' '}
+                      {t('paid')}{' '}
                       {settlement.to_user_name ||
                         getMemberName(settlement.to_user_id)}
                     </p>
@@ -1158,19 +1178,19 @@ export default function GroupWorkspace({ section }: Props) {
         {section === 'analytics' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white p-6 rounded-2xl shadow">
-              <p className="text-sm text-gray-500">Total spent</p>
+              <p className="text-sm text-gray-500">{t('totalSpent')}</p>
               <p className="text-3xl font-bold mt-2">
                 {formatMoney(totalSpent)} ₸
               </p>
             </div>
 
             <div className="bg-white p-6 rounded-2xl shadow">
-              <p className="text-sm text-gray-500">Expenses</p>
+              <p className="text-sm text-gray-500">{t('expenses')}</p>
               <p className="text-3xl font-bold mt-2">{expenses.length}</p>
             </div>
 
             <div className="bg-white p-6 rounded-2xl shadow">
-              <p className="text-sm text-gray-500">Settled</p>
+              <p className="text-sm text-gray-500">{t('settled')}</p>
               <p className="text-3xl font-bold mt-2">
                 {formatMoney(totalSettled)} ₸
               </p>
@@ -1182,10 +1202,10 @@ export default function GroupWorkspace({ section }: Props) {
           <div className="space-y-6">
             <section className="bg-white p-6 rounded-2xl shadow">
               <h2 className="text-2xl font-semibold mb-2">
-                Expense categories
+                {t('expenseCategories')}
               </h2>
               <p className="text-gray-600 mb-5">
-                Enable categories for this group.
+                {t('expenseCategoriesDescription')}
               </p>
 
               <label className="flex items-center gap-3 mb-5">
@@ -1198,7 +1218,7 @@ export default function GroupWorkspace({ section }: Props) {
                   }}
                 />
                 <span className="font-medium">
-                  Enable categories for this group
+                  {t('enableCategories')}
                 </span>
               </label>
 
@@ -1207,7 +1227,7 @@ export default function GroupWorkspace({ section }: Props) {
                   onClick={saveGroupSettings}
                   className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
                 >
-                  Save settings
+                  {t('saveSettings')}
                 </button>
 
                 {settingsMessage && (
@@ -1217,21 +1237,23 @@ export default function GroupWorkspace({ section }: Props) {
             </section>
 
             <section className="bg-white p-6 rounded-2xl shadow">
-              <h2 className="text-2xl font-semibold mb-2">Group Settings</h2>
+              <h2 className="text-2xl font-semibold mb-2">
+                {t('groupSettings')}
+              </h2>
               <p className="text-gray-600 mb-6">
-                Manage actions that affect the whole group.
+                {t('manageGroupActions')}
               </p>
 
               <button
                 onClick={() =>
                   setConfirmAction({
                     type: 'delete-group',
-                    message: 'Delete this group? This action cannot be undone.',
+                    message: t('deleteGroupConfirmation'),
                   })
                 }
                 className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700"
               >
-                Delete Group
+                {t('deleteGroup')}
               </button>
             </section>
           </div>
@@ -1241,7 +1263,7 @@ export default function GroupWorkspace({ section }: Props) {
       {confirmAction && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
-            <h2 className="text-xl font-semibold mb-2">Are you sure?</h2>
+            <h2 className="text-xl font-semibold mb-2">{t('areYouSure')}</h2>
 
             <p className="text-gray-600 mb-6">{confirmAction.message}</p>
 
@@ -1250,14 +1272,14 @@ export default function GroupWorkspace({ section }: Props) {
                 onClick={() => setConfirmAction(null)}
                 className="border px-5 py-2 rounded-xl hover:bg-gray-50"
               >
-                Cancel
+                {t('cancel')}
               </button>
 
               <button
                 onClick={handleConfirm}
                 className="bg-red-600 text-white px-5 py-2 rounded-xl hover:bg-red-700"
               >
-                Confirm
+                {t('confirm')}
               </button>
             </div>
           </div>
@@ -1267,10 +1289,10 @@ export default function GroupWorkspace({ section }: Props) {
       {settlementBalance && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
-            <h2 className="text-xl font-semibold mb-2">Settle balance</h2>
+            <h2 className="text-xl font-semibold mb-2">{t('settleBalance')}</h2>
 
             <p className="text-gray-600 mb-1">
-              {settlementBalance.from_user_name} owes{' '}
+              {settlementBalance.from_user_name} {t('owes')}{' '}
               {settlementBalance.to_user_name}
             </p>
 
@@ -1287,7 +1309,7 @@ export default function GroupWorkspace({ section }: Props) {
                   checked={settlementMode === 'full'}
                   onChange={() => setSettlementMode('full')}
                 />
-                <span className="font-medium">Full amount</span>
+                <span className="font-medium">{t('fullAmount')}</span>
               </label>
 
               <label className="flex items-center gap-3 border rounded-xl p-3 cursor-pointer">
@@ -1298,14 +1320,14 @@ export default function GroupWorkspace({ section }: Props) {
                   checked={settlementMode === 'partial'}
                   onChange={() => setSettlementMode('partial')}
                 />
-                <span className="font-medium">Partial amount</span>
+                <span className="font-medium">{t('partialAmount')}</span>
               </label>
             </div>
 
             {settlementMode === 'partial' && (
               <div className="mb-6">
                 <label className="block text-sm font-medium mb-2">
-                  Amount to settle
+                  {t('amountToSettle')}
                 </label>
 
                 <input
@@ -1313,7 +1335,7 @@ export default function GroupWorkspace({ section }: Props) {
                   type="number"
                   min="0"
                   max={settlementBalance.amount}
-                  placeholder="Amount to settle"
+                  placeholder={t('amountToSettle')}
                   value={partialSettlementAmount}
                   onChange={(e) => setPartialSettlementAmount(e.target.value)}
                 />
@@ -1325,14 +1347,14 @@ export default function GroupWorkspace({ section }: Props) {
                 onClick={closeSettlementModal}
                 className="border px-5 py-2 rounded-xl hover:bg-gray-50"
               >
-                Cancel
+                {t('cancel')}
               </button>
 
               <button
                 onClick={settleBalance}
                 className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
               >
-                Confirm settlement
+                {t('confirmSettlement')}
               </button>
             </div>
           </div>
