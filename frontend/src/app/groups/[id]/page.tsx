@@ -1,7 +1,5 @@
 'use client';
 
-// need to add comments later
-
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
@@ -20,6 +18,7 @@ type SplitType = 'equal' | 'percentage' | 'exact';
 
 type ExpenseParticipant = {
   user_id: number;
+  user_name?: string;
   share_amount: number;
 };
 
@@ -76,6 +75,17 @@ export default function GroupPage() {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
     null
   );
+
+  const splitTypeLabels: Record<SplitType, string> = {
+    equal: 'Equal',
+    percentage: 'Percentage',
+    exact: 'Exact',
+  };
+
+  const formatMoney = (value: number) =>
+    value.toLocaleString(undefined, {
+      maximumFractionDigits: 2,
+    });
 
   const getMemberName = (userId: number) => {
     const member = members.find((currentMember) => currentMember.id === userId);
@@ -602,7 +612,7 @@ export default function GroupPage() {
                 return (
                   <div
                     key={expense.id}
-                    className="border rounded-2xl p-5 bg-gray-50"
+                    className="border rounded-2xl px-5 pt-4 pb-5 bg-gray-50"
                   >
                     {isEditing ? (
                       <div className="space-y-3">
@@ -694,61 +704,73 @@ export default function GroupPage() {
                       </div>
                     ) : (
                       <div className="flex justify-between items-start gap-4">
-                        <div>
+                        <div className="flex-1">
                           <h3 className="font-semibold text-lg">
                             {expense.description}
                           </h3>
 
-                          <p className="text-sm text-gray-600 mt-2">
-                            Paid by:{' '}
-                            <span className="font-medium text-black">
-                              {payer ? payer.name : `User #${expense.paid_by}`}
-                            </span>
-                          </p>
+                          <div className="mt-3 space-y-1 text-sm text-gray-600">
+                            <p>
+                              Total:{' '}
+                              <span className="font-medium text-black">
+                                {formatMoney(expense.amount)} ₸
+                              </span>
+                            </p>
 
-                          <p className="text-sm text-gray-600">
-                            Amount:{' '}
-                            <span className="font-medium text-black">
-                              {expense.amount.toLocaleString()} ₸
-                            </span>
-                          </p>
+                            <p>
+                              Paid by:{' '}
+                              <span className="font-medium text-black">
+                                {payer ? payer.name : `User #${expense.paid_by}`}
+                              </span>
+                            </p>
+                          </div>
 
-                          <p className="text-sm text-gray-600 capitalize">
-                            Split type: {expense.split_type || 'equal'}
-                          </p>
+                          <div className="mt-4">
+                            <p className="text-sm font-medium text-gray-900">
+                              Shares:
+                            </p>
 
-                          <div className="mt-2 text-sm text-gray-600">
-                            {expense.participants.map((participant) => (
-                              <p key={participant.user_id}>
-                                {getMemberName(participant.user_id)} owes{' '}
-                                <span className="font-medium text-black">
-                                  {participant.share_amount.toLocaleString()} ₸
-                                </span>
-                              </p>
-                            ))}
+                            <div className="mt-2 space-y-1 text-sm text-gray-600">
+                              {expense.participants.map((participant) => (
+                                <p key={participant.user_id}>
+                                  {participant.user_name ||
+                                    getMemberName(participant.user_id)}{' '}
+                                  -{' '}
+                                  <span className="font-medium text-black">
+                                    {formatMoney(participant.share_amount)} ₸
+                                  </span>
+                                </p>
+                              ))}
+                            </div>
                           </div>
                         </div>
 
-                        <div className="flex gap-3">
-                          <button
-                            onClick={() => startEditingExpense(expense)}
-                            className="text-blue-600 hover:underline text-sm"
-                          >
-                            Edit
-                          </button>
+                        <div className="flex shrink-0 items-center gap-5 pt-1">
+                          <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600">
+                            {splitTypeLabels[expense.split_type || 'equal']}
+                          </span>
 
-                          <button
-                            onClick={() =>
-                              setConfirmAction({
-                                type: 'delete-expense',
-                                expenseId: expense.id,
-                                message: `Delete expense "${expense.description}"?`,
-                              })
-                            }
-                            className="text-red-600 hover:underline text-sm"
-                          >
-                            Delete
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => startEditingExpense(expense)}
+                              className="text-blue-600 hover:underline text-sm leading-none"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'delete-expense',
+                                  expenseId: expense.id,
+                                  message: `Delete expense "${expense.description}"?`,
+                                })
+                              }
+                              className="text-red-600 hover:underline text-sm leading-none"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}

@@ -188,7 +188,8 @@ def normalize_participants(
 
 def serialize_expense(expense: Expense, db: Session):
     participants = (
-        db.query(ExpenseParticipant)
+        db.query(ExpenseParticipant, User)
+        .outerjoin(User, User.id == ExpenseParticipant.user_id)
         .filter(ExpenseParticipant.expense_id == expense.id)
         .all()
     )
@@ -203,9 +204,10 @@ def serialize_expense(expense: Expense, db: Session):
         "participants": [
             {
                 "user_id": participant.user_id,
+                "user_name": user.name if user else None,
                 "share_amount": participant.share_amount
             }
-            for participant in participants
+            for participant, user in participants
         ]
     }
 
