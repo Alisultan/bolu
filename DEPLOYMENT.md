@@ -134,6 +134,7 @@ Recommended path:
 4. Deploy or redeploy the backend.
 
 The backend creates the existing tables automatically on startup with SQLAlchemy.
+If your provider gives a URL that starts with `postgres://`, the backend normalizes it to `postgresql://` automatically.
 
 ## Exact Order to Get a Public Test Link
 
