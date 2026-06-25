@@ -15,6 +15,7 @@ class Group(Base):
     name = Column(String, nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     categories_enabled = Column(Boolean, nullable=False, default=False)
+    invite_code = Column(String, unique=True, index=True, nullable=False)
 
 
 class GroupMember(Base):

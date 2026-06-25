@@ -1,4 +1,6 @@
 import os
+import random
+import string
 from typing import Literal, Optional, Union
 
 from fastapi import FastAPI, Depends, HTTPException
@@ -12,9 +14,12 @@ from backend.models import User, Group, GroupMember, Expense, ExpenseParticipant
 
 app = FastAPI(title="Bolu API")
 
-allowed_origins = [
+default_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+frontend_url = os.environ.get("FRONTEND_URL")
+extra_origins = os.environ.get("CORS_ORIGINS", "")
+allowed_origins = default_origins + [
     origin.strip()
-    for origin in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+    for origin in ",".join(filter(None, [frontend_url, extra_origins])).split(",")
     if origin.strip()
 ]
 
@@ -46,6 +51,12 @@ def ensure_runtime_columns():
             text(
                 "ALTER TABLE groups "
                 "ADD COLUMN IF NOT EXISTS categories_enabled BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE groups "
+                "ADD COLUMN IF NOT EXISTS invite_code VARCHAR"
             )
         )
         connection.execute(
@@ -104,6 +115,9 @@ class GroupSettingsUpdate(BaseModel):
     name: Optional[str] = None
     categories_enabled: Optional[bool] = None
 
+class JoinGroupRequest(BaseModel):
+    user_name: str
+
 class SettlementCreate(BaseModel):
     group_id: int
     from_user: int
@@ -116,6 +130,47 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def generate_invite_code(db: Session):
+    alphabet = string.ascii_uppercase + string.digits
+
+    while True:
+        code = "".join(random.choice(alphabet) for _ in range(6))
+        existing_group = db.query(Group).filter(Group.invite_code == code).first()
+
+        if existing_group is None:
+            return code
+
+
+def backfill_invite_codes():
+    db = SessionLocal()
+
+    try:
+        groups_without_codes = (
+            db.query(Group)
+            .filter((Group.invite_code == None) | (Group.invite_code == ""))
+            .all()
+        )
+
+        for group in groups_without_codes:
+            group.invite_code = generate_invite_code(db)
+
+        if groups_without_codes:
+            db.commit()
+    finally:
+        db.close()
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "ix_groups_invite_code_unique ON groups(invite_code)"
+            )
+        )
+
+
+backfill_invite_codes()
 
 
 def normalize_participants(
@@ -282,6 +337,11 @@ def home():
     return {"message": "Welcome to Bolu API"}
 
 
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
 @app.post("/users")
 def create_user(name: str, db: Session = Depends(get_db)):
     user = User(name=name)
@@ -313,7 +373,12 @@ def create_group(name: str, created_by: int, db: Session = Depends(get_db)):
     if existing_group:
         return {"error": "You already have a group with this name"}
 
-    group = Group(name=clean_name, created_by=created_by, categories_enabled=False)
+    group = Group(
+        name=clean_name,
+        created_by=created_by,
+        categories_enabled=False,
+        invite_code=generate_invite_code(db),
+    )
     db.add(group)
     db.commit()
     db.refresh(group)
@@ -324,6 +389,87 @@ def create_group(name: str, created_by: int, db: Session = Depends(get_db)):
 @app.get("/groups")
 def get_groups(db: Session = Depends(get_db)):
     return db.query(Group).all()
+
+@app.get("/groups/join/{invite_code}")
+def get_group_by_invite_code(invite_code: str, db: Session = Depends(get_db)):
+    clean_code = invite_code.strip().upper()
+    group = db.query(Group).filter(Group.invite_code == clean_code).first()
+
+    if group is None:
+        return {"error": "Invalid invite code"}
+
+    return {
+        "id": group.id,
+        "name": group.name,
+        "invite_code": group.invite_code,
+    }
+
+@app.post("/groups/join/{invite_code}")
+def join_group_by_invite_code(
+    invite_code: str,
+    request: JoinGroupRequest,
+    db: Session = Depends(get_db)
+):
+    clean_code = invite_code.strip().upper()
+    clean_name = request.user_name.strip()
+
+    if len(clean_name) == 0:
+        return {"error": "User name cannot be empty"}
+
+    group = db.query(Group).filter(Group.invite_code == clean_code).first()
+
+    if group is None:
+        return {"error": "Invalid invite code"}
+
+    user = db.query(User).filter(User.name == clean_name).first()
+
+    if user is None:
+        user = User(name=clean_name)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    existing_member = (
+        db.query(GroupMember)
+        .filter(
+            GroupMember.group_id == group.id,
+            GroupMember.user_id == user.id
+        )
+        .first()
+    )
+
+    if existing_member:
+        return {
+            "message": "You are already a member of this group",
+            "already_member": True,
+            "group": {
+                "id": group.id,
+                "name": group.name,
+                "invite_code": group.invite_code,
+            },
+            "user": {
+                "id": user.id,
+                "name": user.name,
+            },
+        }
+
+    member = GroupMember(group_id=group.id, user_id=user.id)
+    db.add(member)
+    db.commit()
+
+    return {
+        "message": "Joined group",
+        "already_member": False,
+        "group": {
+            "id": group.id,
+            "name": group.name,
+            "invite_code": group.invite_code,
+        },
+        "user": {
+            "id": user.id,
+            "name": user.name,
+        },
+    }
 
 @app.get("/groups/{group_id}")
 def get_group(group_id: int, db: Session = Depends(get_db)):

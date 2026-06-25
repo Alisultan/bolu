@@ -18,6 +18,7 @@ type Group = {
   name: string;
   created_by: number;
   categories_enabled: boolean;
+  invite_code: string;
 };
 
 type SplitType = 'equal' | 'percentage' | 'exact';
@@ -134,6 +135,7 @@ export default function GroupWorkspace({ section }: Props) {
   const expenseListFeedback = useFeedback();
   const settlementFeedback = useFeedback();
   const settingsFeedback = useFeedback();
+  const inviteFeedback = useFeedback();
   const pageFeedback = useFeedback();
   const showPageError = pageFeedback.showError;
 
@@ -562,6 +564,30 @@ export default function GroupWorkspace({ section }: Props) {
       settingsFeedback.showError(t('apiRequestFailed'));
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const copyInviteCode = async () => {
+    if (!group?.invite_code) return;
+
+    try {
+      await navigator.clipboard.writeText(group.invite_code);
+      inviteFeedback.showSuccess(t('inviteCodeCopied'));
+    } catch {
+      inviteFeedback.showError(t('apiRequestFailed'));
+    }
+  };
+
+  const copyInviteLink = async () => {
+    if (!group?.invite_code) return;
+
+    try {
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/join/${group.invite_code}`
+      );
+      inviteFeedback.showSuccess(t('inviteLinkCopied'));
+    } catch {
+      inviteFeedback.showError(t('apiRequestFailed'));
     }
   };
 
@@ -1350,6 +1376,36 @@ export default function GroupWorkspace({ section }: Props) {
 
         {section === 'settings' && (
           <div className="space-y-6">
+            <section className="bg-white p-6 rounded-2xl shadow">
+              <h2 className="text-2xl font-semibold mb-2">
+                {t('inviteCode')}
+              </h2>
+
+              <p className="mb-5 inline-flex rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 font-mono text-2xl font-bold tracking-widest">
+                {group?.invite_code || '------'}
+              </p>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  onClick={copyInviteCode}
+                  className="bg-black text-white px-5 py-2 rounded-xl hover:bg-gray-800"
+                >
+                  {t('copyInviteCode')}
+                </button>
+
+                <button
+                  onClick={copyInviteLink}
+                  className="border px-5 py-2 rounded-xl hover:bg-gray-50"
+                >
+                  {t('copyInviteLink')}
+                </button>
+              </div>
+
+              <div className="mt-4">
+                <FeedbackMessage feedback={inviteFeedback.feedback} />
+              </div>
+            </section>
+
             <section className="bg-white p-6 rounded-2xl shadow">
               <h2 className="text-2xl font-semibold mb-2">
                 {t('expenseCategories')}

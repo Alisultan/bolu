@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { FeedbackMessage, useFeedback } from './components/useFeedback';
@@ -16,11 +17,16 @@ type Group = {
 
 export default function Home() {
   const { t } = useLanguage();
+  const router = useRouter();
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupName, setGroupName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [joinUserName, setJoinUserName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [joiningGroup, setJoiningGroup] = useState(false);
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
   const groupFormFeedback = useFeedback();
+  const joinGroupFeedback = useFeedback();
   const groupListFeedback = useFeedback();
   const showGroupListError = groupListFeedback.showError;
 
@@ -36,6 +42,14 @@ export default function Home() {
   };
 
   useEffect(() => {
+    const codeFromUrl = new URLSearchParams(window.location.search).get(
+      'invite'
+    );
+
+    if (codeFromUrl) {
+      window.setTimeout(() => setInviteCode(codeFromUrl.toUpperCase()), 0);
+    }
+
     const loadGroups = async () => {
       try {
         const res = await fetch(apiUrl('/groups'));
@@ -108,6 +122,55 @@ export default function Home() {
     }
   };
 
+  const joinGroup = async () => {
+    const cleanCode = inviteCode.trim().toUpperCase();
+    const cleanName = joinUserName.trim();
+
+    if (cleanCode.length === 0) {
+      joinGroupFeedback.showError(t('inviteCodeCannotBeEmpty'));
+      return;
+    }
+
+    if (cleanName.length === 0) {
+      joinGroupFeedback.showError(t('userNameCannotBeEmpty'));
+      return;
+    }
+
+    setJoiningGroup(true);
+
+    try {
+      const response = await fetch(apiUrl(`/groups/join/${cleanCode}`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_name: cleanName,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error || data.detail) {
+        joinGroupFeedback.showError(
+          data.error === 'Invalid invite code'
+            ? t('invalidInviteCode')
+            : data.error || data.detail
+        );
+        return;
+      }
+
+      joinGroupFeedback.showSuccess(
+        data.already_member ? t('youAreAlreadyMember') : t('joinedGroup')
+      );
+      router.push(`/groups/${data.group.id}`);
+    } catch {
+      joinGroupFeedback.showError(t('apiRequestFailed'));
+    } finally {
+      setJoiningGroup(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-gray-100 p-4 sm:p-10">
       <div className="max-w-4xl mx-auto">
@@ -137,6 +200,40 @@ export default function Home() {
 
           <div className="mt-3">
             <FeedbackMessage feedback={groupFormFeedback.feedback} />
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow mb-6">
+          <h2 className="text-2xl font-semibold mb-4">{t('joinGroup')}</h2>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <input
+              className="border p-3 rounded w-full uppercase"
+              placeholder={t('inviteCode')}
+              value={inviteCode}
+              onChange={(event) =>
+                setInviteCode(event.target.value.toUpperCase())
+              }
+            />
+
+            <input
+              className="border p-3 rounded w-full"
+              placeholder={t('yourName')}
+              value={joinUserName}
+              onChange={(event) => setJoinUserName(event.target.value)}
+            />
+          </div>
+
+          <button
+            onClick={joinGroup}
+            disabled={joiningGroup}
+            className="mt-3 bg-black text-white px-4 py-2 rounded disabled:cursor-not-allowed disabled:bg-gray-400"
+          >
+            {joiningGroup ? t('joining') : t('joinGroup')}
+          </button>
+
+          <div className="mt-3">
+            <FeedbackMessage feedback={joinGroupFeedback.feedback} />
           </div>
         </div>
 
